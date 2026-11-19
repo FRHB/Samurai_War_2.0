@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Samurai Wars - Babylon.js Sandbox & Editor</title>
+  <style>
+    html, body, #renderCanvas {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      touch-action: none;
+      background: #141414;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #f3f4f6;
+    }
+    #hud {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .panel {
+      pointer-events: auto;
+      background: rgba(20, 24, 28, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 8px;
+      padding: 6px 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    select, button {
+      background: #232930;
+      color: #f9fafb;
+      border: 1px solid #4b5563;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button.active {
+      background: #b91c1c;
+      border-color: #f87171;
+    }
+    .unit-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 8px;
+    }
+    .unit-btn img {
+      width: 22px;
+      height: 22px;
+      object-fit: contain;
+    }
+  </style>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+  <div id="hud">
+    <div class="panel">
+      <label for="mapSelect">Map:</label>
+      <select id="mapSelect"></select>
+      <button id="modeSandbox" class="active">Sandbox</button>
+      <button id="modePractice">Practice</button>
+      <button id="modeEditor">Map Editor</button>
+      <button id="clearUnits">Clear Units</button>
+    </div>
+    <div class="panel" id="unitBar"></div>
+  </div>
+  <canvas id="renderCanvas"></canvas>
+
+  <script>
+    const MAPS = [
+      "Maps/Practice.png",
+      "Maps/Map1.png", "Maps/Map2.png", "Maps/Map3.png", "Maps/Map4.png",
+      "Maps/Map5.png", "Maps/Map6.png", "Maps/Map7.png", "Maps/Map8.png",
+      "Maps/Map9.png", "Maps/Map10.png", "Maps/Map11.png", "Maps/Map12.png"
+    ];
+
+    const UNITS = [
+      { id: "ashigaru", label: "Ashigaru", icon: "images/select-ashigaru.png", color: new BABYLON.Color3(0.25, 0.55, 0.85) },
+      { id: "bow", label: "Bow", icon: "images/select-bow.png", color: new BABYLON.Color3(0.2, 0.7, 0.45) },
+      { id: "cannon", label: "Cannon", icon: "images/select-cannon.png", color: new BABYLON.Color3(0.45, 0.45, 0.5) },
+      { id: "cavalry", label: "Cavalry", icon: "images/select-cavalry.png", color: new BABYLON.Color3(0.85, 0.55, 0.2) },
+      { id: "general", label: "General", icon: "images/select-general.png", color: new BABYLON.Color3(0.9, 0.8, 0.25) },
+      { id: "katana", label: "Katana", icon: "images/select-katana.png", color: new BABYLON.Color3(0.8, 0.25, 0.25) },
+      { id: "matchlock", label: "Matchlock", icon: "images/select-matchlock.png", color: new BABYLON.Color3(0.65, 0.4, 0.75) },
+      { id: "naginata", label: "Naginata", icon: "images/select-naginata.png", color: new BABYLON.Color3(0.3, 0.75, 0.75) },
+      { id: "samurai", label: "Samurai", icon: "images/select-samurai.png", color: new BABYLON.Color3(0.85, 0.2, 0.35) },
+      { id: "yari", label: "Yari", icon: "images/select-yari.png", color: new BABYLON.Color3(0.55, 0.75, 0.25) }
+    ];
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const canvas = document.getElementById("renderCanvas");
+      const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+
+      let selectedUnit = UNITS[0];
+      let currentMode = "sandbox";
+      const placedMeshes = [];
+
+      const mapSelect = document.getElementById("mapSelect");
+      MAPS.forEach((m, idx) => {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m.replace("Maps/", "").replace(".png", "");
+        if (idx === 1) opt.selected = true; // Default to Map1
+        mapSelect.appendChild(opt);
+      });
+
+      const unitBar = document.getElementById("unitBar");
+      const unitButtons = [];
+      UNITS.forEach((u, idx) => {
+        const btn = document.createElement("button");
+        btn.className = "unit-btn" + (idx === 0 ? " active" : "");
+        btn.innerHTML = `<img src="${u.icon}" alt="${u.label}" /><span>${u.label}</span>`;
+        btn.addEventListener("click", () => {
+          selectedUnit = u;
+          unitButtons.forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+        });
+        unitBar.appendChild(btn);
+        unitButtons.push(btn);
+      });
+
+      const setMode = (mode) => {
+        currentMode = mode;
+        ["sandbox", "practice", "editor"].forEach(m => {
+          document.getElementById("mode" + m[0].toUpperCase() + m.slice(1)).classList.toggle("active", m === mode);
+        });
+        if (mode === "practice") {
+          mapSelect.value = "Maps/Practice.png";
+          applyMapTexture("Maps/Practice.png");
+        }
+      };
+
+      document.getElementById("modeSandbox").addEventListener("click", () => setMode("sandbox"));
+      document.getElementById("modePractice").addEventListener("click", () => setMode("practice"));
+      document.getElementById("modeEditor").addEventListener("click", () => setMode("editor"));
+
+      const scene = new BABYLON.Scene(engine);
+      scene.clearColor = new BABYLON.Color4(0.12, 0.14, 0.16, 1);
+
+      const camera = new BABYLON.ArcRotateCamera(
+        "cam", -Math.PI / 2, Math.PI / 3, 36, BABYLON.Vector3.Zero(), scene
+      );
+      camera.attachControl(canvas, true);
+      camera.lowerBetaLimit = 0.15;
+      camera.upperBetaLimit = Math.PI / 2.2;
+      camera.lowerRadiusLimit = 8;
+      camera.upperRadiusLimit = 120;
+
+      new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
+      const dirLight = new BABYLON.DirectionalLight("dir", new BABYLON.Vector3(-0.5, -1, -0.4), scene);
+      dirLight.position = new BABYLON.Vector3(20, 40, 20);
+
+      const ground = BABYLON.MeshBuilder.CreateGround("battlefield", { width: 40, height: 40, subdivisions: 32 }, scene);
+      const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+      groundMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+      ground.material = groundMat;
+
+      const applyMapTexture = (mapPath) => {
+        groundMat.diffuseTexture = new BABYLON.Texture(mapPath, scene);
+      };
+      applyMapTexture(mapSelect.value);
+      mapSelect.addEventListener("change", () => applyMapTexture(mapSelect.value));
+
+      const clearUnits = () => {
+        while (placedMeshes.length) {
+          placedMeshes.pop().dispose();
+        }
+      };
+      document.getElementById("clearUnits").addEventListener("click", clearUnits);
+
+      // Hover preview marker on ground ray-pick
+      const cursorRing = BABYLON.MeshBuilder.CreateTorus("cursorRing", { diameter: 1.8, thickness: 0.12, tessellation: 24 }, scene);
+      cursorRing.isPickable = false;
+      cursorRing.setEnabled(false);
+
+      const placeUnitAt = (point, unitDef) => {
+        const mesh = BABYLON.MeshBuilder.CreateCylinder(
+          `unit_${unitDef.id}_${Date.now()}`,
+          { height: 1.5, diameter: 1.25 },
+          scene
+        );
+        mesh.position = new BABYLON.Vector3(point.x, 0.75, point.z);
+        const mat = new BABYLON.StandardMaterial(`mat_${unitDef.id}`, scene);
+        mat.diffuseColor = unitDef.color;
+        mesh.material = mat;
+        mesh.metadata = { unitType: unitDef.id };
+        placedMeshes.push(mesh);
+      };
+
+      let pointerDownPos = null;
+      scene.onPointerObservable.add((pointerInfo) => {
+        const pick = scene.pick(scene.pointerX, scene.pointerY, (m) => m === ground);
+        if (pick && pick.hit && pick.pickedPoint) {
+          cursorRing.setEnabled(true);
+          cursorRing.position.set(pick.pickedPoint.x, 0.08, pick.pickedPoint.z);
+        } else {
+          cursorRing.setEnabled(false);
+        }
+
+        if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+          pointerDownPos = { x: scene.pointerX, y: scene.pointerY };
+        }
+
+        // Place on short click/tap (avoids accidental placement while orbiting camera)
+        if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERUP && pointerDownPos) {
+          const dx = scene.pointerX - pointerDownPos.x;
+          const dy = scene.pointerY - pointerDownPos.y;
+          pointerDownPos = null;
+          if (Math.hypot(dx, dy) < 6 && pick && pick.hit && pick.pickedPoint) {
+            placeUnitAt(pick.pickedPoint, selectedUnit);
+          }
+        }
+      });
+
+      engine.runRenderLoop(() => scene.render());
+      window.addEventListener("resize", () => engine.resize());
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Samurai Wars 2.0 - Sandbox, Practice & Map Editor</title>
+  <style>
+    html, body, #renderCanvas {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      touch-action: none;
+      background: #141414;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #f3f4f6;
+      user-select: none;
+    }
+    #hud {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .panel {
+      pointer-events: auto;
+      background: rgba(20, 24, 28, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 8px;
+      padding: 6px 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      width: fit-content;
+      max-width: 100%;
+    }
+    select, button {
+      background: #232930;
+      color: #f9fafb;
+      border: 1px solid #4b5563;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button.active {
+      background: #b91c1c;
+      border-color: #f87171;
+    }
+    button.team-red.active {
+      background: #dc2626;
+      border-color: #fca5a5;
+    }
+    button.team-blue.active {
+      background: #2563eb;
+      border-color: #93c5fd;
+    }
+    .tool-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 8px;
+    }
+    .tool-btn img {
+      width: 22px;
+      height: 22px;
+      object-fit: contain;
+    }
+    #battleStats {
+      font-size: 12px;
+      padding: 4px 10px;
+      background: rgba(15, 18, 22, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .red-count { color: #f87171; font-weight: 700; }
+    .blue-count { color: #60a5fa; font-weight: 700; }
+    #orderBar {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 12;
+      pointer-events: auto;
+      background: rgba(24, 27, 32, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 10px;
+      padding: 6px 10px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .order-btn {
+      padding: 6px 12px;
+      font-weight: 600;
+      border-radius: 7px;
+    }
+    .order-btn.active {
+      background: #d97706;
+      border-color: #fcd34d;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div class="panel">
+      <label for="mapSelect">Map:</label>
+      <select id="mapSelect"></select>
+      <button id="modeSandbox" class="active">Sandbox</button>
+      <button id="modePractice">Practice</button>
+      <button id="modeEditor">Map Editor</button>
+      <button id="teamRed" class="team-red active">Team 1 (Red)</button>
+      <button id="teamBlue" class="team-blue">Team 2 (Blue)</button>
+      <button id="actionDeploy" class="active">Deploy</button>
+      <button id="actionOrder">Move / Select</button>
+      <button id="speedToggle">Speed: 1x</button>
+      <button id="musicToggle">Music: Off</button>
+      <button id="clearAll">Clear</button>
+    </div>
+    <div class="panel" id="unitBar"></div>
+    <div class="panel" id="editorBar" style="display:none;"></div>
+    <div id="battleStats">
+      <span class="red-count">Red: <span id="redAlive">0</span></span>
+      <span class="blue-count">Blue: <span id="blueAlive">0</span></span>
+      <span id="terrainHint">Terrain: Plains (Normal)</span>
+    </div>
+  </div>
+
+  <div id="orderBar">
+    <button class="order-btn" data-order="halt">Halt</button>
+    <button class="order-btn active" data-order="walk">Walk</button>
+    <button class="order-btn" data-order="run">Run</button>
+    <button class="order-btn" data-order="hold">Hold</button>
+    <button class="order-btn" data-order="fire">Fire</button>
+  </div>
+
+  <canvas id="renderCanvas"></canvas>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

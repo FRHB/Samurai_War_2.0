@@ -1,0 +1,20 @@
+{
+  "name": "samurai_war_2.0",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "dependencies": {
+    "@babylonjs/core": "^9.37.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.8"
+  }
+}
