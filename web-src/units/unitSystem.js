@@ -15,29 +15,29 @@ export function createUnitSystem({
   const combatEffects = [];
   const billboardAtlas = createUnitBillboardAtlas(scene);
 
-  const spawnCombatFlash = (pos, isSmoke = false, radius = 0.35) => {
+  const spawnCombatFlash = (pos, isSmoke = false, radius = 0.45) => {
     if (isSmoke) {
-      const puff = createSpritePlane("smoke", Math.floor(Math.random() * 8), 7, radius * 1.15, radius * 1.15);
-      puff.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.24, pos.z);
-      combatEffects.push({ mesh: puff, ttl: 0.38, startScale: 1, isFlash: false });
+      const puff = createSpritePlane("smoke", Math.floor(Math.random() * 8), 7, radius * 1.25, radius * 1.25);
+      puff.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.3, pos.z);
+      combatEffects.push({ mesh: puff, ttl: 0.4, startScale: 1, isFlash: false });
       return;
     }
-    const disc = BABYLON.MeshBuilder.CreateDisc("fx", { radius, tessellation: 12 }, scene);
+    const disc = BABYLON.MeshBuilder.CreateDisc("fx", { radius, tessellation: 14 }, scene);
     disc.rotation.x = Math.PI / 2;
-    disc.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.16, pos.z);
+    disc.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.2, pos.z);
     disc.isPickable = false;
     const mat = new BABYLON.StandardMaterial("fxMat", scene);
     mat.emissiveColor = new BABYLON.Color3(1, 0.52, 0.16);
-    mat.alpha = 0.72;
+    mat.alpha = 0.78;
     disc.material = mat;
-    combatEffects.push({ mesh: disc, ttl: 0.2, startScale: 1, isFlash: true });
+    combatEffects.push({ mesh: disc, ttl: 0.22, startScale: 1, isFlash: true });
   };
 
   const spawnAttackSlash = (fromPos, toPos, team) => {
     const midX = (fromPos.x + toPos.x) * 0.5;
     const midZ = (fromPos.z + toPos.z) * 0.5;
-    const y = getGroundHeightAt(midX, midZ) + 0.24;
-    const slash = BABYLON.MeshBuilder.CreatePlane("slashArc", { width: 0.45, height: 0.16 }, scene);
+    const y = getGroundHeightAt(midX, midZ) + 0.32;
+    const slash = BABYLON.MeshBuilder.CreatePlane("slashArc", { width: 0.6, height: 0.2 }, scene);
     slash.position.set(midX, y, midZ);
     slash.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
     slash.isPickable = false;
@@ -47,16 +47,16 @@ export function createUnitSystem({
     mat.backFaceCulling = false;
     slash.material = mat;
     slash.onDisposeObservable.add(() => mat.dispose());
-    combatEffects.push({ mesh: slash, ttl: 0.14, startScale: 1, isFlash: true });
+    combatEffects.push({ mesh: slash, ttl: 0.16, startScale: 1, isFlash: true });
   };
 
-  const createHpBar = (root, team, width = 0.44) => {
+  const createHpBar = (root, team, width = 0.65) => {
     const barHolder = new BABYLON.TransformNode(`hpHolder_${Date.now()}_${Math.random()}`, scene);
     barHolder.parent = root;
-    barHolder.position.set(0, 0.78, 0);
+    barHolder.position.set(0, 1.05, 0);
     barHolder.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
 
-    const height = 0.055;
+    const height = 0.075;
 
     const bgMesh = BABYLON.MeshBuilder.CreatePlane("hpBg", { width, height }, scene);
     bgMesh.parent = barHolder;
@@ -67,8 +67,8 @@ export function createUnitSystem({
     bgMat.backFaceCulling = false;
     bgMesh.material = bgMat;
 
-    const fillWidth = width - 0.025;
-    const fillMesh = BABYLON.MeshBuilder.CreatePlane("hpFill", { width: fillWidth, height: height - 0.015 }, scene);
+    const fillWidth = width - 0.03;
+    const fillMesh = BABYLON.MeshBuilder.CreatePlane("hpFill", { width: fillWidth, height: height - 0.02 }, scene);
     fillMesh.parent = barHolder;
     fillMesh.position.z = -0.01;
     fillMesh.isPickable = false;
@@ -130,10 +130,10 @@ export function createUnitSystem({
 
     const cols = count === 1 ? 1 : Math.min(count, Math.max(4, Math.ceil(Math.sqrt(count * 1.6))));
     const rows = Math.ceil(count / cols);
-    const spacing = count > 100 ? 0.24 : count > 25 ? 0.28 : 0.34;
-    const spriteW = count > 100 ? 0.44 : isMounted ? 0.58 : 0.5;
-    const spriteH = count > 100 ? 0.48 : isMounted ? 0.58 : 0.55;
-    const baseY = spriteH * 0.5 + 0.02;
+    const spacing = count > 100 ? 0.36 : count > 25 ? 0.42 : 0.52;
+    const spriteW = count > 100 ? 0.64 : isMounted ? 0.88 : 0.78;
+    const spriteH = count > 100 ? 0.7 : isMounted ? 0.88 : 0.84;
+    const baseY = spriteH * 0.5 + 0.03;
 
     const entities = [];
     for (let i = 0; i < count; i++) {
@@ -174,7 +174,7 @@ export function createUnitSystem({
       cols,
       rows,
       spacing,
-      barY: rows * spacing * 0.5 + spriteH + 0.14
+      barY: rows * spacing * 0.5 + spriteH + 0.18
     };
   };
 
@@ -185,12 +185,12 @@ export function createUnitSystem({
     root.position.set(point.x, y, point.z);
 
     const formation = createFormationEntities(root, unitDef, team, count);
-    const barWidth = Math.min(1.6, Math.max(0.45, formation.cols * formation.spacing * 0.75));
+    const barWidth = Math.min(2.0, Math.max(0.6, formation.cols * formation.spacing * 0.75));
     const hpBar = createHpBar(root, team, barWidth);
     hpBar.barHolder.position.y = formation.barY;
 
-    const ringDiameter = Math.max(0.75, Math.hypot(formation.cols * formation.spacing, formation.rows * formation.spacing) * 0.62);
-    const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: ringDiameter, thickness: 0.04, tessellation: 28 }, scene);
+    const ringDiameter = Math.max(1.0, Math.hypot(formation.cols * formation.spacing, formation.rows * formation.spacing) * 0.62);
+    const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: ringDiameter, thickness: 0.05, tessellation: 28 }, scene);
     selRing.parent = root;
     selRing.position.y = 0.05;
     selRing.isPickable = false;
@@ -259,7 +259,7 @@ export function createUnitSystem({
     const selectedList = getSelectedAliveUnits();
     if (!selectedList.length) return;
     const cols = Math.ceil(Math.sqrt(selectedList.length));
-    const spacing = aimAngle === null ? 2.4 : 2.7;
+    const spacing = aimAngle === null ? 2.6 : 2.9;
     const rowsCount = Math.ceil(selectedList.length / cols);
 
     selectedList.forEach((u, i) => {
@@ -291,8 +291,8 @@ export function createUnitSystem({
   const animateEntities = (unitObj, rawDt, dt, isMoving, isAttacking) => {
     unitObj.animTime += dt * (unitObj.order === "run" ? 11.5 : 7.2);
     const isMounted = unitObj.def.id === "cavalry" || unitObj.def.id === "general";
-    const bobAmp = isMoving ? (isMounted ? 0.055 : 0.04) : 0.01;
-    const swayAmp = isMoving ? 0.05 : 0.012;
+    const bobAmp = isMoving ? (isMounted ? 0.06 : 0.045) : 0.012;
+    const swayAmp = isMoving ? 0.05 : 0.015;
 
     for (const ent of unitObj.entities) {
       if (!ent.mesh || ent.mesh.isDisposed()) continue;
@@ -303,7 +303,7 @@ export function createUnitSystem({
           ent.mesh.metadata = null;
           ent.mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
           ent.mesh.rotation.set(Math.PI / 2, 0, Math.random() * Math.PI);
-          ent.mesh.position.set(ent.baseLocalX, 0.06, ent.baseLocalZ);
+          ent.mesh.position.set(ent.baseLocalX, 0.07, ent.baseLocalZ);
           applyEntityVisualState(ent, unitObj.def.id, unitObj.team, true);
         }
         continue;
@@ -315,7 +315,7 @@ export function createUnitSystem({
 
       const phase = unitObj.animTime + ent.animPhase;
       const bob = Math.abs(Math.sin(phase)) * bobAmp;
-      const lunge = ent.attackTimer > 0 ? Math.sin((ent.attackTimer / 0.22) * Math.PI) * 0.14 : 0;
+      const lunge = ent.attackTimer > 0 ? Math.sin((ent.attackTimer / 0.22) * Math.PI) * 0.16 : 0;
       const tilt = ent.attackTimer > 0
         ? Math.sin((ent.attackTimer / 0.22) * Math.PI) * -0.18
         : Math.cos(phase) * swayAmp;
@@ -369,7 +369,7 @@ export function createUnitSystem({
       if (fx.ttl <= 0) {
         combatEffects.splice(i, 1)[0].mesh.dispose();
       } else if (fx.isFlash) {
-        const s = 0.7 + (fx.ttl / 0.2) * 0.5;
+        const s = 0.7 + (fx.ttl / 0.22) * 0.5;
         fx.mesh.scaling.setAll(s);
       }
     }
@@ -436,11 +436,11 @@ export function createUnitSystem({
         }
 
         if (u.def.id === "matchlock" || u.def.id === "cannon") {
-          spawnCombatFlash(u.pos, true, u.def.id === "cannon" ? 0.75 : 0.45);
+          spawnCombatFlash(u.pos, true, u.def.id === "cannon" ? 0.8 : 0.5);
         } else if (!u.def.ranged) {
           spawnAttackSlash(u.pos, nearestVisibleEnemy.pos, u.team);
         }
-        spawnCombatFlash(nearestVisibleEnemy.pos, false, u.def.id === "cannon" ? 0.8 : 0.35);
+        spawnCombatFlash(nearestVisibleEnemy.pos, false, u.def.id === "cannon" ? 0.85 : 0.4);
         soundManager.playUnitAttackSfx(u.def.id);
 
         if (nearestVisibleEnemy.hp <= 0) {
@@ -481,8 +481,8 @@ export function createUnitSystem({
         const sdx = u.pos.x - other.pos.x;
         const sdz = u.pos.z - other.pos.z;
         const sdist = Math.hypot(sdx, sdz);
-        if (sdist > 0.001 && sdist < 1.1) {
-          const push = (1.1 - sdist) * 1.4 * dt;
+        if (sdist > 0.001 && sdist < 1.2) {
+          const push = (1.2 - sdist) * 1.4 * dt;
           u.pos.x += (sdx / sdist) * push;
           u.pos.z += (sdz / sdist) * push;
         }
