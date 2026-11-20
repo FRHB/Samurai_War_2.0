@@ -380,11 +380,26 @@ export function createUnitSystem({
 
   const getSelectedAliveUnits = () => units.filter((u) => u.selected && u.hp > 0);
 
-  const toggleUnitSelection = (unit) => {
-    if (unit.hp <= 0) return;
-    unit.selected = !unit.selected;
-    unit.selRing.setEnabled(unit.selected);
+  const setUnitSelected = (unit, selected) => {
+    if (!unit || unit.hp <= 0) return;
+    unit.selected = Boolean(selected);
+    unit.selRing?.setEnabled?.(unit.selected);
     updateRangeOutline(unit, getTerrainInfoAt(unit.pos.x, unit.pos.z));
+  };
+
+  const clearSelection = () => {
+    for (const u of units) {
+      if (u.selected) {
+        u.selected = false;
+        u.selRing?.setEnabled?.(false);
+        updateRangeOutline(u, getTerrainInfoAt(u.pos.x, u.pos.z));
+      }
+    }
+  };
+
+  const toggleUnitSelection = (unit) => {
+    if (!unit || unit.hp <= 0) return;
+    setUnitSelected(unit, !unit.selected);
   };
 
   const issueOrderToSelected = (order) => {
@@ -821,6 +836,8 @@ export function createUnitSystem({
     units,
     spawnUnit,
     getSelectedAliveUnits,
+    setUnitSelected,
+    clearSelection,
     toggleUnitSelection,
     issueOrderToSelected,
     commandSelectedMoveTo,
