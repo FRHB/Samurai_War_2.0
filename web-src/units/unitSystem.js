@@ -42,6 +42,33 @@ export function createUnitSystem({
     return delta <= halfAngle;
   };
 
+  // Clear line-of-sight check between attacker and target so trees/hills/water don't block ranged shots
+  // and enemies outside the forward sight cone are never located or engaged in 360°
+  const hasRangedLineOfSight = (unitObj, fromX, fromZ, facingYaw, toX, toZ, maxRange) => {
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    const dist = Math.hypot(dx, dz);
+    if (dist <= 0.0001 || dist > maxRange) return false;
+    if (!isInFrontSightCone(fromX, fromZ, facingYaw, toX, toZ, FRONT_CONE_HALF_ANGLE)) {
+      return false;
+    }
+
+    // Cannons fire elevated arcs; bow/matchlock check intermediate terrain obstacles along the sightline
+    if (unitObj?.def?.id === "cannon") return true;
+
+    const steps = Math.max(3, Math.min(14, Math.ceil(dist / 1.5)));
+    for (let s = 1; s < steps; s++) {
+      const t = s / steps;
+      const sx = fromX + dx * t;
+      const sz = fromZ + dz * t;
+      const sampleTerrain = getTerrainInfoAt(sx, sz);
+      if (sampleTerrain?.type === "trees") {
+        return false;
+      }
+    }
+    return true;
+  };
+
   const spawnCombatFlash = (pos, isSmoke = false, radius = 0.45) => {
     if (isSmoke) {
       const puff = createSpritePlane("smoke", Math.floor(Math.random() * 8), 7, radius * 1.25, radius * 1.25);
@@ -75,6 +102,42 @@ export function createUnitSystem({
     slash.material = mat;
     slash.onDisposeObservable.add(() => mat.dispose());
     combatEffects.push({ mesh: slash, ttl: 0.18, startScale: 1, isFlash: true });
+  };
+
+  // Small light facing arrow highlight attached to a soldier mesh indicating which way they face
+  const createSoldierFacingArrow = (soldierMesh, team, spec) => {
+    const isRed = team === 1;
+    const arrowColor = isRed
+      ? new BABYLON.Color3(1.0, 0.65, 0.65)
+      : new BABYLON.Color3(0.65, 0.85, 1.0);
+
+    const arrowLen = Math.max(0.24, (spec?.width ?? 0.78) * 0.38);
+    const arrowWidth = Math.max(0.16, (spec?.width ?? 0.78) * 0.26);
+
+    const arrow = BABYLON.MeshBuilder.CreateCylinder(
+      `facingArrow_${soldierMesh.name}`,
+      {
+        diameterTop: 0.01,
+        diameterBottom: arrowWidth,
+        height: arrowLen,
+        tessellation: 3
+      },
+      scene
+    );
+    arrow.parent = soldierMesh;
+    arrow.rotation.x = Math.PI / 2;
+    arrow.position.set(0, -(spec?.height ?? 0.84) * 0.44, arrowLen * 0.65);
+    arrow.isPickable = false;
+
+    const mat = new BABYLON.StandardMaterial(`facingArrowMat_${soldierMesh.name}`, scene);
+    mat.diffuseColor = arrowColor;
+    mat.emissiveColor = arrowColor.scale(0.75);
+    mat.alpha = 0.58;
+    mat.backFaceCulling = false;
+    arrow.material = mat;
+
+    arrow.onDisposeObservable.add(() => mat.dispose());
+    return arrow;
   };
 
   // Forward-facing sight/range arc outline for ranged units (bow, matchlock, cannon)
@@ -250,6 +313,8 @@ export function createUnitSystem({
     mesh.position.set(0, spec.yOffset, 0);
     mesh.computeWorldMatrix(true);
 
+    const facingArrow = createSoldierFacingArrow(mesh, team, spec);
+
     const entity = {
       id: `${unitDef.id}_sol_${idx}`,
       index: idx,
@@ -275,7 +340,8 @@ export function createUnitSystem({
       yaw: team === 1 ? 0 : Math.PI,
       baseY: spec.yOffset,
       node,
-      mesh
+      mesh,
+      facingArrow
     };
 
     mesh.metadata = { ...(mesh.metadata || {}), unit: unitObj, entity, usesFullTexture: true };
@@ -558,6 +624,7 @@ export function createUnitSystem({
     if (!ent.alive) {
       if (!ent.fallen) {
         ent.fallen = true;
+        ent.facingArrow?.setEnabled?.(false);
         ent.mesh.isPickable = false;
         ent.mesh.metadata = { ...(ent.mesh.metadata || {}), unit: null, entity: null, usesFullTexture: true };
         ent.mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
@@ -599,9 +666,10 @@ export function createUnitSystem({
     ent.mesh.rotation.z = tilt;
     const scaleBoost = isAttacking && ent.attackTimer > 0 ? 1.15 : 1.0;
     ent.mesh.scaling.set(scaleBoost, scaleBoost, 1.0);
+    ent.facingArrow?.setEnabled?.(true);
   };
 
-  // Individual soldier-level combat & progression with forward-only front sight cones and row/column destination alignment
+  // Individual soldier-level combat & progression with forward-only front sight cones and ranged line of sight
   const updateSimulation = (rawDt, dt) => {
     simFrameCounter++;
     for (let i = combatEffects.length - 1; i >= 0; i--) {
@@ -648,7 +716,7 @@ export function createUnitSystem({
     const minEnemyMeleeGap = 1.18;
     const minEnemyMeleeGapSq = minEnemyMeleeGap * minEnemyMeleeGap;
 
-    // 1. Advance each alive soldier & resolve engagements within front sight cone
+    // 1. Advance each alive soldier & resolve engagements within front sight cone and ranged line of sight
     for (let i = 0; i < soldierCount; i++) {
       const ent = allAliveSoldiers[i];
       const u = ent.unit;
@@ -656,7 +724,9 @@ export function createUnitSystem({
 
       const tInfo = getTerrainInfoAt(ent.pos.x, ent.pos.z);
       const sightRange = tInfo.type === "trees" ? u.sightRange * 0.7 : u.sightRange;
-      const sightRangeSq = sightRange * sightRange;
+      const effectiveRange = tInfo.type === "hills" && u.def.ranged ? u.def.range * 1.15 : u.def.range;
+      const maxLocateRange = u.def.ranged ? Math.min(sightRange, effectiveRange) : sightRange;
+      const maxLocateRangeSq = maxLocateRange * maxLocateRange;
 
       let nearestEnemyEnt = null;
       let nearestEnemyDistSq = Infinity;
@@ -668,10 +738,10 @@ export function createUnitSystem({
         const ddx = otherEnt.pos.x - ent.pos.x;
         const ddz = otherEnt.pos.z - ent.pos.z;
         const dSq = ddx * ddx + ddz * ddz;
-        if (dSq > sightRangeSq || dSq >= nearestEnemyDistSq) continue;
+        if (dSq > maxLocateRangeSq || dSq >= nearestEnemyDistSq) continue;
 
-        // Enforce front sight cone so enemies behind/flanking outside front sight are not auto-acquired in 360°
-        if (!isInFrontSightCone(ent.pos.x, ent.pos.z, ent.yaw, otherEnt.pos.x, otherEnt.pos.z)) {
+        // Enforce front sight cone and ranged line-of-sight so enemies outside front sight are never located in 360°
+        if (!hasRangedLineOfSight(u, ent.pos.x, ent.pos.z, ent.yaw, otherEnt.pos.x, otherEnt.pos.z, maxLocateRange)) {
           continue;
         }
 
@@ -680,10 +750,9 @@ export function createUnitSystem({
       }
 
       const nearestDist = nearestEnemyEnt ? Math.sqrt(nearestEnemyDistSq) : Infinity;
-      const effectiveRange = tInfo.type === "hills" && u.def.ranged ? u.def.range * 1.15 : u.def.range;
       const inFrontRange = nearestEnemyEnt
         && nearestDist <= effectiveRange
-        && isInFrontSightCone(ent.pos.x, ent.pos.z, ent.yaw, nearestEnemyEnt.pos.x, nearestEnemyEnt.pos.z);
+        && hasRangedLineOfSight(u, ent.pos.x, ent.pos.z, ent.yaw, nearestEnemyEnt.pos.x, nearestEnemyEnt.pos.z, effectiveRange);
       const canAttack = inFrontRange && (!u.def.ranged || u.fire);
       let didAttack = false;
 
