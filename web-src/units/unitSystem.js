@@ -1,4 +1,5 @@
 import * as BABYLON from "@babylonjs/core";
+import { createUnitBillboardAtlas } from "./unitBillboards.js";
 
 const DEAD_CLEANUP_DELAY = 1.6;
 
@@ -14,6 +15,7 @@ export function createUnitSystem({
   const combatEffects = [];
   const markerTextureCache = new Map();
   const iconImageCache = new Map();
+  const billboardAtlas = createUnitBillboardAtlas(scene);
 
   const loadIcon = (src) =>
     new Promise((resolve) => {
@@ -80,7 +82,7 @@ export function createUnitSystem({
   const createHpBar = (root, team) => {
     const barHolder = new BABYLON.TransformNode(`hpHolder_${Date.now()}_${Math.random()}`, scene);
     barHolder.parent = root;
-    barHolder.position.set(0, 1.85, 0);
+    barHolder.position.set(0, 1.9, 0);
     barHolder.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
 
     const width = 1.1;
@@ -120,6 +122,17 @@ export function createUnitSystem({
     }
   };
 
+  const applyUnitSoldierState = (soldierMesh, unitId, team, fallen) => {
+    const tex = billboardAtlas.getUnitBillboardTexture(unitId, team, fallen ? "fallen" : "alive");
+    if (soldierMesh.material && tex) {
+      soldierMesh.material.diffuseTexture = tex;
+      soldierMesh.material.diffuseTexture.uScale = 1;
+      soldierMesh.material.diffuseTexture.vScale = 1;
+      soldierMesh.material.diffuseTexture.uOffset = 0;
+      soldierMesh.material.diffuseTexture.vOffset = 0;
+    }
+  };
+
   const spawnUnit = async (point, unitDef, team, activeOrder) => {
     const y = getGroundHeightAt(point.x, point.z);
     const root = new BABYLON.TransformNode(`unit_${unitDef.id}_${Date.now()}_${Math.random()}`, scene);
@@ -128,7 +141,7 @@ export function createUnitSystem({
     const plane = BABYLON.MeshBuilder.CreatePlane("marker", { size: 1.05 }, scene);
     plane.parent = root;
     plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
-    plane.position.y = 1.25;
+    plane.position.y = 1.3;
 
     const mat = new BABYLON.StandardMaterial(`mat_${unitDef.id}_${team}_${Date.now()}`, scene);
     mat.diffuseTexture = await getMarkerTexture(unitDef, team);
@@ -141,32 +154,22 @@ export function createUnitSystem({
     const hpBar = createHpBar(root, team);
 
     const isMounted = unitDef.id === "cavalry" || unitDef.id === "general";
-    const isHeavyInfantry = unitDef.id === "samurai" || unitDef.id === "katana" || unitDef.id === "naginata";
-    const aliveRow = team === 2 ? 1 : 2;
-    const fallenRow = isMounted ? 4 : 3;
+    const aliveTex = billboardAtlas.getUnitBillboardTexture(unitDef.id, team, "alive");
 
     const soldiers = [];
     const cols = Math.min(unitDef.squadSize, 8);
     for (let i = 0; i < unitDef.squadSize; i++) {
       const r = Math.floor(i / cols);
       const c = i % cols;
-      const lx = (c - (cols - 1) / 2) * 0.72;
-      const lz = 0.85 + r * 0.72;
+      const lx = (c - (cols - 1) / 2) * 0.74;
+      const lz = 0.85 + r * 0.74;
 
-      const spriteCol = isMounted
-        ? 5 + (i % 3)
-        : isHeavyInfantry
-          ? 1 + (i % 2)
-          : 3 + (i % 2);
-
-      const fallenCol = isMounted ? (i % 8) : (isHeavyInfantry ? 4 + (i % 4) : (i % 4));
-
-      const spriteW = isMounted ? 1.5 : 1.3;
-      const spriteH = isMounted ? 1.5 : 1.4;
-      const sm = createSpritePlane(`s_${i}`, spriteCol, aliveRow, spriteW, spriteH);
+      const spriteW = isMounted ? 1.55 : 1.35;
+      const spriteH = isMounted ? 1.55 : 1.45;
+      const sm = createSpritePlane(`unit_${unitDef.id}_s_${i}`, i % 8, team === 2 ? 1 : 2, spriteW, spriteH, aliveTex);
       sm.parent = root;
-      sm.position.set(lx, spriteH * 0.5 + 0.06, lz);
-      sm.metadata = { aliveCol: spriteCol, aliveRow, fallenCol, fallenRow, fallen: false };
+      sm.position.set(lx, spriteH * 0.5 + 0.04, lz);
+      sm.metadata = { unitId: unitDef.id, team, fallen: false };
       soldiers.push(sm);
     }
 
@@ -330,6 +333,7 @@ export function createUnitSystem({
             s.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
             s.rotation.set(Math.PI / 2, 0, Math.random() * Math.PI);
             s.position.y = 0.14;
+            applyUnitSoldierState(s, nearestEnemy.def.id, nearestEnemy.team, true);
           });
         }
       }
@@ -370,13 +374,13 @@ export function createUnitSystem({
       const hpRatio = Math.max(0, u.hp / u.maxHp);
       const aliveCount = Math.ceil(hpRatio * u.soldiers.length);
       u.soldiers.forEach((s, idx) => {
-        const isAliveSprite = idx < aliveCount;
-        if (isAliveSprite && s.metadata?.fallen) {
-          s.metadata.fallen = false;
-          setSpriteCell(s, s.metadata.aliveCol, s.metadata.aliveRow);
-        } else if (!isAliveSprite && !s.metadata?.fallen) {
-          if (s.metadata) s.metadata.fallen = true;
-          setSpriteCell(s, s.metadata.fallenCol, s.metadata.fallenRow);
+        const shouldBeFallen = idx >= aliveCount;
+        if (shouldBeFallen !== Boolean(s.metadata?.fallen)) {
+          if (s.metadata) s.metadata.fallen = shouldBeFallen;
+          applyUnitSoldierState(s, u.def.id, u.team, shouldBeFallen);
+          if (!shouldBeFallen && setSpriteCell) {
+            setSpriteCell(s, idx % 8, u.team === 2 ? 1 : 2);
+          }
         }
       });
 

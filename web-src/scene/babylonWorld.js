@@ -1,5 +1,6 @@
 import * as BABYLON from "@babylonjs/core";
 import { GRID_SUBS, MAP_DIAMETER, MAP_RADIUS } from "../config/gameData.js";
+import { createPropBillboards } from "../terrain/propBillboards.js";
 
 const SPRITE_COLS = 8;
 const SPRITE_ROWS = 8;
@@ -66,61 +67,12 @@ export function createBabylonWorld(canvas) {
   rimMat.diffuseColor = new BABYLON.Color3(0.45, 0.42, 0.37);
   rimRing.material = rimMat;
 
-  // Billboards sprite sheet helpers (per-plane cloned texture + material with fallback figure if sheet is blank/unloaded)
+  // Separate prop billboard module (trees) + legacy sheet support
+  const propBillboards = createPropBillboards(scene);
   const billboardSourceTex = new BABYLON.Texture("assets/Textures/Billboards.png", scene, false, true);
   billboardSourceTex.hasAlpha = true;
   billboardSourceTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
   billboardSourceTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
-
-  const fallbackFigureTexCache = new Map();
-  const getFallbackFigureTexture = (row) => {
-    const isBlue = row === 1;
-    const isFallen = row === 3 || row === 4;
-    const key = `${isBlue ? "blue" : "red"}_${isFallen ? "fallen" : "alive"}`;
-    if (fallbackFigureTexCache.has(key)) return fallbackFigureTexCache.get(key);
-
-    const dt = new BABYLON.DynamicTexture(`fallbackSprite_${key}`, { width: 64, height: 64 }, scene, true);
-    dt.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
-    dt.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
-    const ctx = dt.getContext();
-    ctx.clearRect(0, 0, 64, 64);
-
-    if (isFallen) {
-      ctx.fillStyle = "rgba(31, 41, 55, 0.85)";
-      ctx.fillRect(10, 36, 44, 10);
-      ctx.beginPath();
-      ctx.arc(46, 36, 6, 0, Math.PI * 2);
-      ctx.fillStyle = isBlue ? "#3b82f6" : "#ef4444";
-      ctx.fill();
-    } else {
-      const primary = isBlue ? "#2563eb" : "#dc2626";
-      const accent = isBlue ? "#93c5fd" : "#fca5a5";
-      // Kabuto / helmet top
-      ctx.beginPath();
-      ctx.arc(32, 17, 9, Math.PI, 0);
-      ctx.fillStyle = "#1f2937";
-      ctx.fill();
-      ctx.strokeStyle = accent;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      // Torso armor
-      ctx.fillStyle = primary;
-      ctx.beginPath();
-      ctx.roundRect(21, 25, 22, 20, 4);
-      ctx.fill();
-      ctx.strokeStyle = "#f9fafb";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      // Legs / base
-      ctx.fillStyle = "#111827";
-      ctx.fillRect(23, 45, 7, 11);
-      ctx.fillRect(34, 45, 7, 11);
-    }
-
-    dt.update();
-    fallbackFigureTexCache.set(key, dt);
-    return dt;
-  };
 
   const applyCellToTexture = (tex, col, row) => {
     if (!tex || tex instanceof BABYLON.DynamicTexture) return;
@@ -139,17 +91,14 @@ export function createBabylonWorld(canvas) {
     const uvs = [u0, vBot, u1, vBot, u1, vTop, u0, vTop];
     plane.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs, true);
 
-    const useFallback = !billboardSourceTex.isReady() || (row === 0 && plane.name?.startsWith("editorTree_"));
-    if (useFallback && plane.material && row !== 0) {
-      const fbTex = getFallbackFigureTexture(row);
-      if (plane.material.diffuseTexture !== fbTex && plane.material.diffuseTexture !== billboardSourceTex) {
-        plane.material.diffuseTexture?.dispose?.();
+    if (plane.name?.startsWith("editorTree_") || plane.name?.startsWith("tree_")) {
+      if (plane.material) {
+        plane.material.diffuseTexture = propBillboards.getTreeBillboardTexture(col);
+        plane.material.diffuseTexture.uScale = 1;
+        plane.material.diffuseTexture.vScale = 1;
+        plane.material.diffuseTexture.uOffset = 0;
+        plane.material.diffuseTexture.vOffset = 0;
       }
-      plane.material.diffuseTexture = fbTex;
-      plane.material.diffuseTexture.uScale = 1;
-      plane.material.diffuseTexture.vScale = 1;
-      plane.material.diffuseTexture.uOffset = 0;
-      plane.material.diffuseTexture.vOffset = 0;
       return;
     }
 
@@ -158,31 +107,43 @@ export function createBabylonWorld(canvas) {
     }
   };
 
-  const createSpritePlane = (name, col, row, sizeX = 1.05, sizeY = 1.15) => {
+  const createSpritePlane = (name, col, row, sizeX = 1.05, sizeY = 1.15, customTexture = null) => {
     const plane = BABYLON.MeshBuilder.CreatePlane(name, { width: sizeX, height: sizeY, updatable: true }, scene);
     plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
     plane.isPickable = false;
 
+    const isTree = name?.startsWith("editorTree_") || name?.startsWith("tree_");
     const mat = new BABYLON.StandardMaterial(`${name}_mat`, scene);
-    const clonedTex = billboardSourceTex.clone();
-    clonedTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
-    clonedTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
-    mat.diffuseTexture = clonedTex;
+
+    if (customTexture) {
+      mat.diffuseTexture = customTexture;
+    } else if (isTree) {
+      mat.diffuseTexture = propBillboards.getTreeBillboardTexture(col);
+    } else {
+      const clonedTex = billboardSourceTex.clone();
+      clonedTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+      clonedTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+      mat.diffuseTexture = clonedTex;
+    }
+
     mat.diffuseTexture.hasAlpha = true;
     mat.useAlphaFromDiffuseTexture = true;
     mat.backFaceCulling = false;
-    mat.emissiveColor = new BABYLON.Color3(0.35, 0.35, 0.35);
+    mat.emissiveColor = new BABYLON.Color3(0.28, 0.28, 0.28);
     mat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
     plane.material = mat;
 
+    const ownsTexture = !customTexture && !isTree;
     plane.onDisposeObservable.add(() => {
-      if (mat.diffuseTexture && !fallbackFigureTexCache.has(mat.diffuseTexture.name)) {
+      if (ownsTexture && mat.diffuseTexture) {
         mat.diffuseTexture.dispose();
       }
       mat.dispose();
     });
 
-    setSpriteCell(plane, col, row);
+    if (!customTexture) {
+      setSpriteCell(plane, col, row);
+    }
     return plane;
   };
 
