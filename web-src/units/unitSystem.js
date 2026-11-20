@@ -61,32 +61,49 @@ export function createUnitSystem({
     return dt;
   };
 
-  const spawnCombatFlash = (pos, isSmoke = false, radius = 0.65) => {
+  const spawnCombatFlash = (pos, isSmoke = false, radius = 0.45) => {
     if (isSmoke) {
-      const puff = createSpritePlane("smoke", Math.floor(Math.random() * 8), 7, radius * 1.3, radius * 1.3);
-      puff.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.42, pos.z);
-      combatEffects.push({ mesh: puff, ttl: 0.45 });
+      const puff = createSpritePlane("smoke", Math.floor(Math.random() * 8), 7, radius * 1.25, radius * 1.25);
+      puff.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.3, pos.z);
+      combatEffects.push({ mesh: puff, ttl: 0.42, startScale: 1, isFlash: false });
       return;
     }
-    const disc = BABYLON.MeshBuilder.CreateDisc("fx", { radius, tessellation: 12 }, scene);
+    const disc = BABYLON.MeshBuilder.CreateDisc("fx", { radius, tessellation: 14 }, scene);
     disc.rotation.x = Math.PI / 2;
-    disc.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.28, pos.z);
+    disc.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.2, pos.z);
     disc.isPickable = false;
     const mat = new BABYLON.StandardMaterial("fxMat", scene);
-    mat.emissiveColor = new BABYLON.Color3(1, 0.45, 0.15);
-    mat.alpha = 0.72;
+    mat.emissiveColor = new BABYLON.Color3(1, 0.52, 0.16);
+    mat.alpha = 0.78;
     disc.material = mat;
-    combatEffects.push({ mesh: disc, ttl: 0.22 });
+    combatEffects.push({ mesh: disc, ttl: 0.22, startScale: 1, isFlash: true });
+  };
+
+  const spawnAttackSlash = (fromPos, toPos, team) => {
+    const midX = (fromPos.x + toPos.x) * 0.5;
+    const midZ = (fromPos.z + toPos.z) * 0.5;
+    const y = getGroundHeightAt(midX, midZ) + 0.32;
+    const slash = BABYLON.MeshBuilder.CreatePlane("slashArc", { width: 0.65, height: 0.22 }, scene);
+    slash.position.set(midX, y, midZ);
+    slash.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+    slash.isPickable = false;
+    const mat = new BABYLON.StandardMaterial(`slashMat_${Date.now()}_${Math.random()}`, scene);
+    mat.emissiveColor = team === 1 ? new BABYLON.Color3(1, 0.85, 0.45) : new BABYLON.Color3(0.65, 0.9, 1);
+    mat.alpha = 0.85;
+    mat.backFaceCulling = false;
+    slash.material = mat;
+    slash.onDisposeObservable.add(() => mat.dispose());
+    combatEffects.push({ mesh: slash, ttl: 0.16, startScale: 1, isFlash: true });
   };
 
   const createHpBar = (root, team) => {
     const barHolder = new BABYLON.TransformNode(`hpHolder_${Date.now()}_${Math.random()}`, scene);
     barHolder.parent = root;
-    barHolder.position.set(0, 1.38, 0);
+    barHolder.position.set(0, 1.05, 0);
     barHolder.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
 
-    const width = 0.8;
-    const height = 0.09;
+    const width = 0.62;
+    const height = 0.07;
 
     const bgMesh = BABYLON.MeshBuilder.CreatePlane("hpBg", { width, height }, scene);
     bgMesh.parent = barHolder;
@@ -97,7 +114,7 @@ export function createUnitSystem({
     bgMat.backFaceCulling = false;
     bgMesh.material = bgMat;
 
-    const fillMesh = BABYLON.MeshBuilder.CreatePlane("hpFill", { width: width - 0.03, height: height - 0.025 }, scene);
+    const fillMesh = BABYLON.MeshBuilder.CreatePlane("hpFill", { width: width - 0.03, height: height - 0.02 }, scene);
     fillMesh.parent = barHolder;
     fillMesh.position.z = -0.01;
     fillMesh.isPickable = false;
@@ -110,11 +127,24 @@ export function createUnitSystem({
     return { barHolder, fillMesh, fillMat };
   };
 
+  const syncSquadStatsFromEntities = (unitObj) => {
+    const aliveEntities = unitObj.entities.filter((e) => e.alive);
+    if (!aliveEntities.length) {
+      unitObj.hp = 0;
+      unitObj.morale = 0;
+      return;
+    }
+    unitObj.hp = aliveEntities.reduce((sum, e) => sum + e.hp, 0);
+    unitObj.morale = aliveEntities.reduce((sum, e) => sum + e.morale, 0) / aliveEntities.length;
+    unitObj.dmg = aliveEntities.reduce((sum, e) => sum + e.dmg, 0) / aliveEntities.length;
+    unitObj.armor = aliveEntities.reduce((sum, e) => sum + e.armor, 0) / aliveEntities.length;
+  };
+
   const updateHpBar = (unitObj) => {
     if (!unitObj.hpBar) return;
     const ratio = Math.max(0, Math.min(1, unitObj.hp / unitObj.maxHp));
     unitObj.hpBar.fillMesh.scaling.x = Math.max(0.001, ratio);
-    unitObj.hpBar.fillMesh.position.x = -(1 - ratio) * 0.385;
+    unitObj.hpBar.fillMesh.position.x = -(1 - ratio) * 0.295;
     if (ratio <= 0.3) {
       unitObj.hpBar.fillMat.diffuseColor.set(0.95, 0.2, 0.15);
     } else if (ratio <= 0.6) {
@@ -122,15 +152,66 @@ export function createUnitSystem({
     }
   };
 
-  const applyUnitSoldierState = (soldierMesh, unitId, team, fallen) => {
+  const applyEntityVisualState = (entity, unitId, team, fallen) => {
     const tex = billboardAtlas.getUnitBillboardTexture(unitId, team, fallen ? "fallen" : "alive");
-    if (soldierMesh.material && tex) {
-      soldierMesh.material.diffuseTexture = tex;
-      soldierMesh.material.diffuseTexture.uScale = 1;
-      soldierMesh.material.diffuseTexture.vScale = 1;
-      soldierMesh.material.diffuseTexture.uOffset = 0;
-      soldierMesh.material.diffuseTexture.vOffset = 0;
+    if (entity.mesh.material && tex) {
+      entity.mesh.material.diffuseTexture = tex;
+      entity.mesh.material.diffuseTexture.uScale = 1;
+      entity.mesh.material.diffuseTexture.vScale = 1;
+      entity.mesh.material.diffuseTexture.uOffset = 0;
+      entity.mesh.material.diffuseTexture.vOffset = 0;
     }
+  };
+
+  const createSoldierEntities = (root, unitDef, team) => {
+    const count = Math.max(1, unitDef.squadSize || 10);
+    const perSoldierMaxHp = Math.max(15, Math.round((unitDef.hp || 150) / count));
+    const perSoldierDmg = Math.max(2, Math.round(((unitDef.dmg || 15) / Math.sqrt(count)) * 10) / 10);
+    const soldierArmor = unitDef.armor ?? 4;
+    const baseMorale = unitDef.morale ?? 70;
+
+    const isMounted = unitDef.id === "cavalry" || unitDef.id === "general";
+    const aliveTex = billboardAtlas.getUnitBillboardTexture(unitDef.id, team, "alive");
+    const cols = Math.min(count, 8);
+    const entities = [];
+
+    for (let i = 0; i < count; i++) {
+      const r = Math.floor(i / cols);
+      const c = i % cols;
+      const lx = (c - (cols - 1) / 2) * 0.36;
+      const lz = 0.42 + r * 0.36;
+      const baseY = isMounted ? 0.36 : 0.33;
+
+      const spriteW = isMounted ? 0.72 : 0.62;
+      const spriteH = isMounted ? 0.72 : 0.68;
+      const mesh = createSpritePlane(`unit_${unitDef.id}_e_${i}`, i % 8, team === 2 ? 1 : 2, spriteW, spriteH, aliveTex);
+      mesh.parent = root;
+      mesh.position.set(lx, baseY, lz);
+
+      const entity = {
+        id: `${unitDef.id}_ent_${i}`,
+        index: i,
+        hp: perSoldierMaxHp,
+        maxHp: perSoldierMaxHp,
+        dmg: perSoldierDmg,
+        armor: soldierArmor,
+        morale: baseMorale,
+        maxMorale: 100,
+        alive: true,
+        fallen: false,
+        animPhase: i * 0.75,
+        attackTimer: 0,
+        baseLocalX: lx,
+        baseLocalZ: lz,
+        baseY,
+        mesh
+      };
+
+      mesh.metadata = { entity };
+      entities.push(entity);
+    }
+
+    return entities;
   };
 
   const spawnUnit = async (point, unitDef, team, activeOrder) => {
@@ -138,10 +219,10 @@ export function createUnitSystem({
     const root = new BABYLON.TransformNode(`unit_${unitDef.id}_${Date.now()}_${Math.random()}`, scene);
     root.position.set(point.x, y, point.z);
 
-    const plane = BABYLON.MeshBuilder.CreatePlane("marker", { size: 0.75 }, scene);
+    const plane = BABYLON.MeshBuilder.CreatePlane("marker", { size: 0.56 }, scene);
     plane.parent = root;
     plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
-    plane.position.y = 0.98;
+    plane.position.y = 0.76;
 
     const mat = new BABYLON.StandardMaterial(`mat_${unitDef.id}_${team}_${Date.now()}`, scene);
     mat.diffuseTexture = await getMarkerTexture(unitDef, team);
@@ -152,46 +233,34 @@ export function createUnitSystem({
     plane.material = mat;
 
     const hpBar = createHpBar(root, team);
+    const entities = createSoldierEntities(root, unitDef, team);
 
-    const isMounted = unitDef.id === "cavalry" || unitDef.id === "general";
-    const aliveTex = billboardAtlas.getUnitBillboardTexture(unitDef.id, team, "alive");
-
-    const soldiers = [];
-    const cols = Math.min(unitDef.squadSize, 8);
-    for (let i = 0; i < unitDef.squadSize; i++) {
-      const r = Math.floor(i / cols);
-      const c = i % cols;
-      const lx = (c - (cols - 1) / 2) * 0.48;
-      const lz = 0.55 + r * 0.48;
-
-      const spriteW = isMounted ? 1.05 : 0.9;
-      const spriteH = isMounted ? 1.05 : 0.98;
-      const sm = createSpritePlane(`unit_${unitDef.id}_s_${i}`, i % 8, team === 2 ? 1 : 2, spriteW, spriteH, aliveTex);
-      sm.parent = root;
-      sm.position.set(lx, spriteH * 0.5 + 0.03, lz);
-      sm.metadata = { unitId: unitDef.id, team, fallen: false };
-      soldiers.push(sm);
-    }
-
-    const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: 1.1, thickness: 0.06, tessellation: 24 }, scene);
+    const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: 0.85, thickness: 0.045, tessellation: 24 }, scene);
     selRing.parent = root;
-    selRing.position.y = 0.06;
+    selRing.position.y = 0.05;
     selRing.isPickable = false;
     const selMat = new BABYLON.StandardMaterial("selMat", scene);
     selMat.emissiveColor = new BABYLON.Color3(1, 0.88, 0.25);
     selRing.material = selMat;
     selRing.setEnabled(false);
 
+    const totalMaxHp = entities.reduce((sum, e) => sum + e.maxHp, 0);
+
     const unitObj = {
       id: `${unitDef.id}_${Math.random().toString(36).slice(2, 7)}`,
       def: unitDef,
       team,
-      hp: unitDef.hp,
-      maxHp: unitDef.hp,
+      hp: totalMaxHp,
+      maxHp: totalMaxHp,
+      dmg: unitDef.dmg ?? 15,
+      armor: unitDef.armor ?? 4,
+      morale: unitDef.morale ?? 70,
+      sightRange: unitDef.sightRange ?? Math.max(16, (unitDef.range ?? 3) * 1.35),
       pos: new BABYLON.Vector3(point.x, y, point.z),
       targetPos: null,
       yaw: team === 1 ? 0 : Math.PI,
       cooldown: 0,
+      animTime: 0,
       order: activeOrder === "halt" ? "halt" : activeOrder === "run" ? "run" : "walk",
       hold: activeOrder === "hold",
       fire: true,
@@ -200,7 +269,7 @@ export function createUnitSystem({
       root,
       plane,
       hpBar,
-      soldiers,
+      entities,
       selRing
     };
 
@@ -231,7 +300,7 @@ export function createUnitSystem({
     const selectedList = getSelectedAliveUnits();
     if (!selectedList.length) return;
     const cols = Math.ceil(Math.sqrt(selectedList.length));
-    const spacing = aimAngle === null ? 2.0 : 2.2;
+    const spacing = aimAngle === null ? 1.75 : 1.95;
     const rowsCount = Math.ceil(selectedList.length / cols);
 
     selectedList.forEach((u, i) => {
@@ -255,14 +324,95 @@ export function createUnitSystem({
 
   const disposeUnitEntry = (unitObj) => {
     unitObj.plane.metadata = null;
+    for (const ent of unitObj.entities || []) {
+      if (ent.mesh) ent.mesh.metadata = null;
+    }
     unitObj.root.dispose();
+  };
+
+  const animateEntities = (unitObj, rawDt, dt, isMoving, isAttacking) => {
+    unitObj.animTime += dt * (unitObj.order === "run" ? 11.5 : 7.2);
+    const isMounted = unitObj.def.id === "cavalry" || unitObj.def.id === "general";
+    const bobAmp = isMoving ? (isMounted ? 0.065 : 0.045) : 0.012;
+    const swayAmp = isMoving ? 0.055 : 0.015;
+
+    for (const ent of unitObj.entities) {
+      if (!ent.mesh || ent.mesh.isDisposed()) continue;
+      if (!ent.alive) {
+        if (!ent.fallen) {
+          ent.fallen = true;
+          ent.mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
+          ent.mesh.rotation.set(Math.PI / 2, 0, Math.random() * Math.PI);
+          ent.mesh.position.set(ent.baseLocalX, 0.07, ent.baseLocalZ);
+          applyEntityVisualState(ent, unitObj.def.id, unitObj.team, true);
+        }
+        continue;
+      }
+
+      if (ent.attackTimer > 0) {
+        ent.attackTimer = Math.max(0, ent.attackTimer - rawDt);
+      }
+
+      const phase = unitObj.animTime + ent.animPhase;
+      const bob = Math.abs(Math.sin(phase)) * bobAmp;
+      const lunge = ent.attackTimer > 0 ? Math.sin((ent.attackTimer / 0.22) * Math.PI) * 0.16 : 0;
+      const tilt = ent.attackTimer > 0
+        ? Math.sin((ent.attackTimer / 0.22) * Math.PI) * -0.18
+        : Math.cos(phase) * swayAmp;
+
+      ent.mesh.position.set(
+        ent.baseLocalX,
+        ent.baseY + bob,
+        ent.baseLocalZ + lunge
+      );
+      ent.mesh.rotation.z = tilt;
+      ent.mesh.scaling.x = isAttacking && ent.attackTimer > 0 ? 1.12 : 1.0;
+      ent.mesh.scaling.y = isAttacking && ent.attackTimer > 0 ? 1.12 : 1.0;
+    }
+  };
+
+  const applyDamageToGroupEntities = (attackerUnit, defenderUnit, totalRawDamage) => {
+    const aliveDefenders = defenderUnit.entities.filter((e) => e.alive);
+    if (!aliveDefenders.length) return;
+
+    const moraleMult = 0.75 + (attackerUnit.morale / 100) * 0.45;
+    const dmgPerHit = Math.max(1.5, (totalRawDamage * moraleMult) / Math.min(aliveDefenders.length, 3));
+    const hits = Math.min(aliveDefenders.length, attackerUnit.def.ranged ? 3 : 2);
+
+    for (let h = 0; h < hits; h++) {
+      const targetEnt = aliveDefenders[(Math.floor(Math.random() * aliveDefenders.length) + h) % aliveDefenders.length];
+      if (!targetEnt || !targetEnt.alive) continue;
+
+      const armorReduction = targetEnt.armor * 0.35;
+      const finalEntDmg = Math.max(1.0, dmgPerHit - armorReduction);
+      targetEnt.hp = Math.max(0, targetEnt.hp - finalEntDmg);
+      targetEnt.morale = Math.max(5, targetEnt.morale - finalEntDmg * 0.28);
+
+      if (targetEnt.hp <= 0) {
+        targetEnt.alive = false;
+        defenderUnit.morale = Math.max(5, defenderUnit.morale - 6);
+      }
+    }
+
+    for (const atkEnt of attackerUnit.entities) {
+      if (atkEnt.alive) {
+        atkEnt.morale = Math.min(atkEnt.maxMorale, atkEnt.morale + 0.6);
+      }
+    }
+
+    syncSquadStatsFromEntities(defenderUnit);
+    updateHpBar(defenderUnit);
   };
 
   const updateSimulation = (rawDt, dt) => {
     for (let i = combatEffects.length - 1; i >= 0; i--) {
-      combatEffects[i].ttl -= rawDt;
-      if (combatEffects[i].ttl <= 0) {
-        combatEffects[i].mesh.dispose();
+      const fx = combatEffects[i];
+      fx.ttl -= rawDt;
+      if (fx.ttl <= 0) {
+        combatEffects.splice(i, 1)[0].mesh.dispose();
+      } else if (fx.isFlash) {
+        const s = 0.7 + (fx.ttl / 0.22) * 0.55;
+        fx.mesh.scaling.setAll(s);
       }
     }
 
@@ -288,69 +438,78 @@ export function createUnitSystem({
     for (const u of alive) {
       if (u.cooldown > 0) u.cooldown -= dt;
       const tInfo = getTerrainInfoAt(u.pos.x, u.pos.z);
+      const sightRange = tInfo.type === "trees" ? u.sightRange * 0.7 : u.sightRange;
 
-      let nearestEnemy = null;
-      let nearestDist = Infinity;
+      // Units can only detect/see enemies within their sightRange
+      let nearestVisibleEnemy = null;
+      let nearestVisibleDist = Infinity;
       for (const other of alive) {
         if (other.team === u.team) continue;
         const d = BABYLON.Vector3.Distance(u.pos, other.pos);
-        if (d < nearestDist) {
-          nearestDist = d;
-          nearestEnemy = other;
+        if (d <= sightRange && d < nearestVisibleDist) {
+          nearestVisibleDist = d;
+          nearestVisibleEnemy = other;
         }
       }
 
       const effectiveRange = tInfo.type === "hills" && u.def.ranged ? u.def.range * 1.15 : u.def.range;
-      const canAttack = nearestEnemy && nearestDist <= effectiveRange && (!u.def.ranged || u.fire);
+      const canAttack = nearestVisibleEnemy && nearestVisibleDist <= effectiveRange && (!u.def.ranged || u.fire);
+      let didAttackThisTick = false;
 
       if (canAttack && u.cooldown <= 0) {
-        const targetTerrain = getTerrainInfoAt(nearestEnemy.pos.x, nearestEnemy.pos.z);
+        didAttackThisTick = true;
+        const targetTerrain = getTerrainInfoAt(nearestVisibleEnemy.pos.x, nearestVisibleEnemy.pos.z);
         const defMult = u.def.ranged ? targetTerrain.rangedDefMult : 1.0;
-        const dmg = u.def.dmg * tInfo.atkMult * getMatchupMultiplier(u, nearestEnemy) * defMult;
-        nearestEnemy.hp = Math.max(0, nearestEnemy.hp - dmg);
-        updateHpBar(nearestEnemy);
-        u.cooldown = u.def.cd;
-        u.yaw = Math.atan2(nearestEnemy.pos.x - u.pos.x, nearestEnemy.pos.z - u.pos.z);
+        const dmg = u.dmg * tInfo.atkMult * getMatchupMultiplier(u, nearestVisibleEnemy) * defMult;
 
-        u.plane.scaling.setAll(1.14);
+        applyDamageToGroupEntities(u, nearestVisibleEnemy, dmg);
+        u.cooldown = u.def.cd;
+        u.yaw = Math.atan2(nearestVisibleEnemy.pos.x - u.pos.x, nearestVisibleEnemy.pos.z - u.pos.z);
+
+        for (const atkEnt of u.entities) {
+          if (atkEnt.alive && Math.random() < 0.45) {
+            atkEnt.attackTimer = 0.22;
+          }
+        }
+
+        u.plane.scaling.setAll(1.12);
         setTimeout(() => u.plane && !u.plane.isDisposed() && u.plane.scaling.setAll(1), 90);
 
         if (u.def.id === "matchlock" || u.def.id === "cannon") {
-          spawnCombatFlash(u.pos, true, u.def.id === "cannon" ? 1.05 : 0.65);
+          spawnCombatFlash(u.pos, true, u.def.id === "cannon" ? 0.9 : 0.55);
+        } else if (!u.def.ranged) {
+          spawnAttackSlash(u.pos, nearestVisibleEnemy.pos, u.team);
         }
-        spawnCombatFlash(nearestEnemy.pos, false, u.def.id === "cannon" ? 1.1 : 0.5);
+        spawnCombatFlash(nearestVisibleEnemy.pos, false, u.def.id === "cannon" ? 0.95 : 0.42);
         soundManager.playUnitAttackSfx(u.def.id);
 
-        if (nearestEnemy.hp <= 0) {
-          nearestEnemy.selected = false;
-          nearestEnemy.deadTimer = DEAD_CLEANUP_DELAY;
-          nearestEnemy.plane.isPickable = false;
-          nearestEnemy.plane.metadata = null;
-          nearestEnemy.hpBar?.barHolder?.setEnabled?.(false);
+        if (nearestVisibleEnemy.hp <= 0) {
+          nearestVisibleEnemy.selected = false;
+          nearestVisibleEnemy.deadTimer = DEAD_CLEANUP_DELAY;
+          nearestVisibleEnemy.plane.isPickable = false;
+          nearestVisibleEnemy.plane.metadata = null;
+          nearestVisibleEnemy.hpBar?.barHolder?.setEnabled?.(false);
           soundManager.playRandomCasualty();
-          nearestEnemy.selRing.setEnabled(false);
-          nearestEnemy.soldiers.forEach((s) => {
-            s.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
-            s.rotation.set(Math.PI / 2, 0, Math.random() * Math.PI);
-            s.position.y = 0.1;
-            applyUnitSoldierState(s, nearestEnemy.def.id, nearestEnemy.team, true);
-          });
+          nearestVisibleEnemy.selRing.setEnabled(false);
         }
       }
 
       let moveDest = null;
       if (!u.hold && u.order !== "halt") {
         if (u.targetPos) moveDest = u.targetPos;
-        else if (nearestEnemy && nearestDist > effectiveRange * 0.85) moveDest = nearestEnemy.pos;
+        else if (nearestVisibleEnemy && nearestVisibleDist > effectiveRange * 0.85) moveDest = nearestVisibleEnemy.pos;
       }
 
+      let isMoving = false;
       if (moveDest) {
         const dx = moveDest.x - u.pos.x;
         const dz = moveDest.z - u.pos.z;
         const dist = Math.hypot(dx, dz);
         if (dist > 0.7) {
+          isMoving = true;
+          const moraleSpeedMult = u.morale < 25 ? 0.75 : 1.0;
           const runMult = u.order === "run" ? 1.65 : 1.0;
-          const step = Math.min(dist, u.def.speed * runMult * tInfo.speedMult * dt);
+          const step = Math.min(dist, u.def.speed * runMult * tInfo.speedMult * moraleSpeedMult * dt);
           u.pos.x += (dx / dist) * step;
           u.pos.z += (dz / dist) * step;
           u.yaw = Math.atan2(dx, dz);
@@ -364,25 +523,22 @@ export function createUnitSystem({
         const sdx = u.pos.x - other.pos.x;
         const sdz = u.pos.z - other.pos.z;
         const sdist = Math.hypot(sdx, sdz);
-        if (sdist > 0.001 && sdist < 1.15) {
-          const push = (1.15 - sdist) * 1.4 * dt;
+        if (sdist > 0.001 && sdist < 1.0) {
+          const push = (1.0 - sdist) * 1.4 * dt;
           u.pos.x += (sdx / sdist) * push;
           u.pos.z += (sdz / sdist) * push;
         }
       }
 
-      const hpRatio = Math.max(0, u.hp / u.maxHp);
-      const aliveCount = Math.ceil(hpRatio * u.soldiers.length);
-      u.soldiers.forEach((s, idx) => {
-        const shouldBeFallen = idx >= aliveCount;
-        if (shouldBeFallen !== Boolean(s.metadata?.fallen)) {
-          if (s.metadata) s.metadata.fallen = shouldBeFallen;
-          applyUnitSoldierState(s, u.def.id, u.team, shouldBeFallen);
-          if (!shouldBeFallen && setSpriteCell) {
-            setSpriteCell(s, idx % 8, u.team === 2 ? 1 : 2);
+      animateEntities(u, rawDt, dt, isMoving, didAttackThisTick);
+
+      if (setSpriteCell) {
+        for (const ent of u.entities) {
+          if (ent.alive) {
+            setSpriteCell(ent.mesh, ent.index % 8, u.team === 2 ? 1 : 2);
           }
         }
-      });
+      }
 
       u.pos.y = getGroundHeightAt(u.pos.x, u.pos.z);
       u.root.position.copyFrom(u.pos);
