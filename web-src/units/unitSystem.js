@@ -691,7 +691,7 @@ export function createUnitSystem({
         }
       }
 
-      // If a soldier was fighting an in-cone enemy and that enemy falls, reform into its own formation
+      // Mark unit for formation reform whenever a previously engaged soldier has no enemy in front sight
       if (!nearestEnemyEnt && ent.wasEngaged) {
         ent.wasEngaged = false;
         u.needsReform = true;
@@ -787,9 +787,16 @@ export function createUnitSystem({
       u.root.position.copyFrom(u.pos);
       u.root.rotation.y = u.yaw;
 
-      if (u.needsReform && !u.hold && u.order !== "halt") {
+      // Reform even if order is hold/halt (aligning slots & yaw in place without marching away)
+      if (u.needsReform) {
         u.needsReform = false;
+        const canMarchToSlot = !u.hold && u.order !== "halt";
         reformUnitFormation(u, cx, cz, u.yaw);
+        if (!canMarchToSlot) {
+          for (const e of aliveEnts) {
+            e.targetPos = null;
+          }
+        }
       }
 
       updateHpBar(u);
