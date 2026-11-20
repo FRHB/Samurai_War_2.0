@@ -1,5 +1,5 @@
 import * as BABYLON from "@babylonjs/core";
-import { EDITOR_TOOLS, UNITS, UNIT_SIZE_OPTIONS } from "../config/gameData.js";
+import { EDITOR_TOOLS, UNITS, UNIT_SIZE_OPTIONS } from "./config/gameData.js";
 import { createSoundManager } from "./audio/audioManager.js";
 import { createBabylonWorld } from "./scene/babylonWorld.js";
 import { createTerrainSystem } from "./terrain/terrainSystem.js";
