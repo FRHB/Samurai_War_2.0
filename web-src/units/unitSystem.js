@@ -100,17 +100,17 @@ export function createUnitSystem({
   };
 
   // Small light facing arrow highlight shown on selected soldiers indicating which way they face
-  const createSoldierFacingArrow = (soldierMesh, team, spec) => {
+  const createSoldierFacingArrow = (soldierNode, team, spec) => {
     const isRed = team === 1;
     const arrowColor = isRed
       ? new BABYLON.Color3(1.0, 0.65, 0.65)
       : new BABYLON.Color3(0.65, 0.85, 1.0);
 
-    const arrowLen = Math.max(0.24, (spec?.width ?? 0.78) * 0.38);
-    const arrowWidth = Math.max(0.16, (spec?.width ?? 0.78) * 0.26);
+    const arrowLen = Math.max(0.26, (spec?.width ?? 0.78) * 0.42);
+    const arrowWidth = Math.max(0.18, (spec?.width ?? 0.78) * 0.28);
 
     const arrow = BABYLON.MeshBuilder.CreateCylinder(
-      `facingArrow_${soldierMesh.name}`,
+      `facingArrow_${soldierNode.name}`,
       {
         diameterTop: 0.01,
         diameterBottom: arrowWidth,
@@ -119,16 +119,16 @@ export function createUnitSystem({
       },
       scene
     );
-    arrow.parent = soldierMesh;
+    arrow.parent = soldierNode;
     arrow.rotation.x = Math.PI / 2;
-    arrow.position.set(0, -(spec?.height ?? 0.84) * 0.44, arrowLen * 0.65);
+    arrow.position.set(0, 0.08, (spec?.width ?? 0.78) * 0.55 + arrowLen * 0.45);
     arrow.isPickable = false;
     arrow.setEnabled(false);
 
-    const mat = new BABYLON.StandardMaterial(`facingArrowMat_${soldierMesh.name}`, scene);
+    const mat = new BABYLON.StandardMaterial(`facingArrowMat_${soldierNode.name}`, scene);
     mat.diffuseColor = arrowColor;
-    mat.emissiveColor = arrowColor.scale(0.75);
-    mat.alpha = 0.58;
+    mat.emissiveColor = arrowColor.scale(0.8);
+    mat.alpha = 0.65;
     mat.backFaceCulling = false;
     arrow.material = mat;
 
@@ -317,7 +317,7 @@ export function createUnitSystem({
     mesh.position.set(0, spec.yOffset, 0);
     mesh.computeWorldMatrix(true);
 
-    const facingArrow = createSoldierFacingArrow(mesh, team, spec);
+    const facingArrow = createSoldierFacingArrow(node, team, spec);
 
     const entity = {
       id: `${unitDef.id}_sol_${idx}`,
@@ -751,7 +751,7 @@ export function createUnitSystem({
       defenderEnt.pos.z
     );
 
-  // Individual soldier-level combat & progression with smooth reformation, selected facing arrows, and proximity awareness
+  // Individual soldier-level combat & progression with forward-only front sight cones and row/column destination alignment
   const updateSimulation = (rawDt, dt) => {
     simFrameCounter++;
     for (let i = combatEffects.length - 1; i >= 0; i--) {
@@ -920,9 +920,10 @@ export function createUnitSystem({
         }
       }
 
-      // Apply soldier separation while moving or fighting so soldiers walk smoothly into formation slots
+      // Apply soldier separation only while fighting or approaching a slot, stopping once in formation so units never circle
       const sepStride = soldierCount > 350 ? 2 : 1;
-      const shouldSeparate = u.inBattleThisTick || Boolean(ent.targetPos);
+      const isApproachingSlot = Boolean(ent.targetPos) && !u.arrivedFormationReady;
+      const shouldSeparate = u.inBattleThisTick || isApproachingSlot;
       if (shouldSeparate && (i + simFrameCounter) % sepStride === 0) {
         for (let j = i + 1; j < soldierCount; j++) {
           const otherEnt = allAliveSoldiers[j];
@@ -969,7 +970,7 @@ export function createUnitSystem({
         sinSum += Math.sin(e.yaw);
         cosSum += Math.cos(e.yaw);
       }
-      if (Math.hypot(sinSum, cosSum) > 0.001) {
+      if (Math.hypot(sinSum, cosSum) > 0.001 && !u.arrivedFormationReady) {
         u.yaw = Math.atan2(sinSum, cosSum);
       }
 
