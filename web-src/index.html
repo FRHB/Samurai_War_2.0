@@ -30,6 +30,7 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
+        touch-action: none;
         background: radial-gradient(circle at 50% 45%, #162033 0%, #0b0f17 72%);
         color: var(--text-primary);
         font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
@@ -253,9 +254,20 @@
       }
 
       .unit-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         text-align: left;
-        padding: 7px 9px;
+        padding: 6px 8px;
         font-size: 0.77rem;
+      }
+
+      .unit-btn img {
+        width: 18px;
+        height: 18px;
+        object-fit: contain;
+        flex-shrink: 0;
+        pointer-events: none;
       }
 
       .status-readout {
@@ -318,27 +330,15 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 16px;
         overflow: hidden;
       }
 
       #renderCanvas {
-        width: min(82vh, calc(100vw - 360px));
-        height: min(82vh, calc(100vw - 360px));
-        max-width: 920px;
-        max-height: 920px;
-        aspect-ratio: 1 / 1;
-        border-radius: 50%;
-        box-shadow:
-          0 0 0 3px rgba(148, 163, 184, 0.25),
-          0 24px 60px rgba(0, 0, 0, 0.75);
+        width: 100%;
+        height: 100%;
         display: block;
+        touch-action: none;
         cursor: crosshair;
-      }
-
-      #sidebar.collapsed + #viewport-area #renderCanvas {
-        width: min(86vh, calc(100vw - 100px));
-        height: min(86vh, calc(100vw - 100px));
       }
 
       .floating-orders {
@@ -371,11 +371,6 @@
           min-width: 268px;
           max-width: 268px;
         }
-
-        #renderCanvas {
-          width: min(74vw, 72vh);
-          height: min(74vw, 72vh);
-        }
       }
     </style>
   </head>
@@ -396,17 +391,14 @@
           <div class="section-label">Map &amp; Mode</div>
           <div class="control-row">
             <label for="map-select">Map</label>
-            <select id="map-select">
-              <option value="river-delta">River Delta</option>
-              <option value="kawanakajima-plains">Kawanakajima Plains</option>
-              <option value="mountain-pass">Mountain Pass</option>
-            </select>
+            <select id="map-select"></select>
           </div>
           <div class="button-grid-3">
             <button id="mode-sandbox" class="active" type="button">Sandbox</button>
             <button id="mode-practice" type="button">Practice</button>
             <button id="mode-editor" type="button">Map Editor</button>
           </div>
+          <div id="editor-tools" class="button-grid-2" style="display:none;"></div>
         </div>
 
         <div class="sidebar-section sidebar-collapsible">
@@ -416,8 +408,8 @@
             <button id="team-blue" class="team-blue" type="button">Team 2 (Blue)</button>
           </div>
           <div class="button-grid-2">
-            <button id="tool-deploy" type="button">Deploy</button>
-            <button id="tool-select" class="active" type="button">Move / Select</button>
+            <button id="tool-deploy" class="active" type="button">Deploy</button>
+            <button id="tool-select" type="button">Move / Select</button>
           </div>
         </div>
 
@@ -426,13 +418,7 @@
           <div id="unit-buttons" class="unit-grid"></div>
           <div class="control-row">
             <label for="formation-size">Formation</label>
-            <select id="formation-size">
-              <option value="1">Single (1)</option>
-              <option value="6">Section (6)</option>
-              <option value="10" selected>Squad (10)</option>
-              <option value="20">Company (20)</option>
-              <option value="40">Battalion (40)</option>
-            </select>
+            <select id="formation-size"></select>
           </div>
         </div>
 
@@ -458,7 +444,7 @@
                 <span>0</span>
               </div>
             </div>
-            <div id="terrain-info" class="terrain-badge">Terrain: River / Water (-45% Speed)</div>
+            <div id="terrain-info" class="terrain-badge">Terrain: Plains (Normal)</div>
             <div id="status-line" class="status-log"></div>
           </div>
         </div>
@@ -468,11 +454,11 @@
         <canvas id="renderCanvas"></canvas>
 
         <div class="floating-orders" role="toolbar" aria-label="Unit Orders">
-          <button id="order-halt" type="button">Halt</button>
-          <button id="order-walk" class="active" type="button">Walk</button>
-          <button id="order-run" type="button">Run</button>
-          <button id="order-hold" type="button">Hold</button>
-          <button id="order-fire" type="button">Fire</button>
+          <button id="order-halt" data-order="halt" type="button">Halt</button>
+          <button id="order-walk" data-order="walk" class="active" type="button">Walk</button>
+          <button id="order-run" data-order="run" type="button">Run</button>
+          <button id="order-hold" data-order="hold" type="button">Hold</button>
+          <button id="order-fire" data-order="fire" type="button">Fire</button>
         </div>
       </main>
     </div>
