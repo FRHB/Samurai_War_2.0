@@ -37,7 +37,7 @@ export function createUnitSystem({
 
     ctx.beginPath();
     ctx.arc(64, 72, 42, 0, Math.PI * 2);
-    ctx.fillStyle = team === 1 ? "rgba(185, 28, 28, 0.94)" : "rgba(29, 78, 216, 0.94)";
+    ctx.fillStyle = team === 1 ? "rgba(185, 28, 28, 0.96)" : "rgba(29, 78, 216, 0.96)";
     ctx.fill();
     ctx.lineWidth = 5;
     ctx.strokeStyle = team === 1 ? "#fecaca" : "#bfdbfe";
@@ -90,7 +90,7 @@ export function createUnitSystem({
     mat.diffuseTexture.hasAlpha = true;
     mat.useAlphaFromDiffuseTexture = true;
     mat.backFaceCulling = false;
-    mat.emissiveColor = new BABYLON.Color3(0.18, 0.18, 0.18);
+    mat.emissiveColor = new BABYLON.Color3(0.25, 0.25, 0.25);
     plane.material = mat;
 
     const isMounted = unitDef.id === "cavalry" || unitDef.id === "general";
@@ -103,8 +103,8 @@ export function createUnitSystem({
     for (let i = 0; i < unitDef.squadSize; i++) {
       const r = Math.floor(i / cols);
       const c = i % cols;
-      const lx = (c - (cols - 1) / 2) * 0.52;
-      const lz = 0.72 + r * 0.52;
+      const lx = (c - (cols - 1) / 2) * 0.56;
+      const lz = 0.75 + r * 0.56;
 
       const spriteCol = isMounted
         ? 5 + (i % 3)
@@ -114,14 +114,14 @@ export function createUnitSystem({
 
       const fallenCol = isMounted ? (i % 8) : (isHeavyInfantry ? 4 + (i % 4) : (i % 4));
 
-      const sm = createSpritePlane(`s_${i}`, spriteCol, aliveRow, isMounted ? 0.95 : 0.78, isMounted ? 0.95 : 0.85);
+      const sm = createSpritePlane(`s_${i}`, spriteCol, aliveRow, isMounted ? 1.15 : 0.95, isMounted ? 1.15 : 1.05);
       sm.parent = root;
-      sm.position.set(lx, 0.42, lz);
+      sm.position.set(lx, 0.52, lz);
       sm.metadata = { aliveCol: spriteCol, aliveRow, fallenCol, fallenRow, fallen: false };
       soldiers.push(sm);
     }
 
-    const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: 1.45, thickness: 0.08, tessellation: 24 }, scene);
+    const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: 1.55, thickness: 0.08, tessellation: 24 }, scene);
     selRing.parent = root;
     selRing.position.y = 0.08;
     selRing.isPickable = false;

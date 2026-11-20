@@ -104,7 +104,7 @@ export function createBabylonWorld(canvas) {
   };
 
   // Cursor ring
-  const cursorRing = BABYLON.MeshBuilder.CreateTorus("cursorRing", { diameter: 2.0, thickness: 0.14, tessellation: 24 }, scene);
+  const cursorRing = BABYLON.MeshBuilder.CreateTorus("cursorRing", { diameter: 1.5, thickness: 0.08, tessellation: 24 }, scene);
   cursorRing.isPickable = false;
   cursorRing.setEnabled(false);
 

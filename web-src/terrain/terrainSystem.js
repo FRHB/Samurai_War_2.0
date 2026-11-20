@@ -179,30 +179,6 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
         prevTex.dispose();
       }
 
-      let seed = 1337;
-      const rand = () => {
-        seed = (seed * 16807) % 2147483647;
-        return (seed - 1) / 2147483646;
-      };
-
-      for (let py = 16; py < size - 16; py += 18) {
-        for (let px = 16; px < size - 16; px += 18) {
-          const pIdx = py * size + px;
-          if (terrainField[pIdx] < -0.45 && rand() < 0.72) {
-            const jitterX = (rand() - 0.5) * 1.4;
-            const jitterZ = (rand() - 0.5) * 1.4;
-            const wx = ((px / size) * 2 - 1) * (MAP_RADIUS * 0.92) + jitterX;
-            const wz = (1 - (py / size) * 2) * (MAP_RADIUS * 0.92) + jitterZ;
-            if (Math.hypot(wx, wz) > MAP_RADIUS - 1.3) continue;
-            const wy = getGroundHeightAt(wx, wz);
-            const scale = 0.85 + rand() * 0.45;
-            const treeSprite = createSpritePlane(`tree_${px}_${py}`, Math.floor(rand() * 8), 0, 1.3 * scale, 1.3 * scale);
-            treeSprite.position.set(wx, wy + 0.55 * scale, wz);
-            autoMapProps.push(treeSprite);
-          }
-        }
-      }
-
       onTerrainChanged?.();
     };
   };
