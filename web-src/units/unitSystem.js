@@ -44,8 +44,8 @@ export function createUnitSystem({
   const spawnAttackSlash = (fromPos, toPos, team) => {
     const midX = (fromPos.x + toPos.x) * 0.5;
     const midZ = (fromPos.z + toPos.z) * 0.5;
-    const y = getGroundHeightAt(midX, midZ) + 0.32;
-    const slash = BABYLON.MeshBuilder.CreatePlane("slashArc", { width: 0.6, height: 0.2 }, scene);
+    const y = getGroundHeightAt(midX, midZ) + 0.36;
+    const slash = BABYLON.MeshBuilder.CreatePlane("slashArc", { width: 0.85, height: 0.26 }, scene);
     slash.position.set(midX, y, midZ);
     slash.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
     slash.isPickable = false;
@@ -55,7 +55,7 @@ export function createUnitSystem({
     mat.backFaceCulling = false;
     slash.material = mat;
     slash.onDisposeObservable.add(() => mat.dispose());
-    combatEffects.push({ mesh: slash, ttl: 0.16, startScale: 1, isFlash: true });
+    combatEffects.push({ mesh: slash, ttl: 0.18, startScale: 1, isFlash: true });
   };
 
   // Scale health bar width to unit count and per-unit max HP so each soldier has real HP
@@ -212,7 +212,7 @@ export function createUnitSystem({
 
     const cols = resolveUniformColumns(count);
     const rows = Math.ceil(count / cols);
-    const spacing = Number(Math.max(spec.width * 0.92, 0.72).toFixed(3));
+    const spacing = Number(Math.max(spec.width * 1.15, 0.92).toFixed(3));
 
     const entities = [];
     for (let i = 0; i < count; i++) {
@@ -231,7 +231,7 @@ export function createUnitSystem({
       cols,
       rows,
       spacing,
-      barY: rows * spacing * 0.5 + spec.height + 0.22
+      barY: rows * spacing * 0.5 + spec.height + 0.24
     };
   };
 
@@ -329,7 +329,7 @@ export function createUnitSystem({
     const selectedList = getSelectedAliveUnits();
     if (!selectedList.length) return;
     const cols = Math.ceil(Math.sqrt(selectedList.length));
-    const spacing = aimAngle === null ? 2.6 : 2.9;
+    const spacing = aimAngle === null ? 2.8 : 3.1;
     const rowsCount = Math.ceil(selectedList.length / cols);
 
     selectedList.forEach((u, i) => {
@@ -410,13 +410,17 @@ export function createUnitSystem({
     }
 
     const isMounted = unitObj.def.id === "cavalry" || unitObj.def.id === "general";
-    const bobAmp = isMoving ? (isMounted ? 0.06 : 0.045) : 0.012;
-    const swayAmp = isMoving ? 0.05 : 0.015;
-    const phase = unitObj.animTime + ent.animPhase;
-    const bob = Math.abs(Math.sin(phase)) * bobAmp;
-    const lunge = ent.attackTimer > 0 ? Math.sin((ent.attackTimer / 0.22) * Math.PI) * 0.16 : 0;
+    const bobAmp = isMoving ? (isMounted ? 0.085 : 0.065) : 0.015;
+    const swayAmp = isMoving ? 0.075 : 0.02;
+    const animRate = isMoving ? (unitObj.order === "run" ? 13.5 : 8.5) : 4.2;
+    const phase = (ent.animClock ?? 0) + ent.animPhase;
+    ent.animClock = (ent.animClock ?? 0) + dt * animRate;
+
+    const attackRatio = ent.attackTimer > 0 ? Math.sin((ent.attackTimer / 0.28) * Math.PI) : 0;
+    const bob = Math.abs(Math.sin(phase)) * bobAmp + attackRatio * 0.05;
+    const lunge = attackRatio * 0.28;
     const tilt = ent.attackTimer > 0
-      ? Math.sin((ent.attackTimer / 0.22) * Math.PI) * -0.18
+      ? attackRatio * -0.26
       : Math.cos(phase) * swayAmp;
 
     ent.pos.y = getGroundHeightAt(ent.pos.x, ent.pos.z);
@@ -425,11 +429,11 @@ export function createUnitSystem({
 
     ent.mesh.position.set(0, ent.baseY + bob, lunge);
     ent.mesh.rotation.z = tilt;
-    const scaleBoost = isAttacking && ent.attackTimer > 0 ? 1.12 : 1.0;
+    const scaleBoost = isAttacking && ent.attackTimer > 0 ? 1.15 : 1.0;
     ent.mesh.scaling.set(scaleBoost, scaleBoost, 1.0);
   };
 
-  // Individual soldier-level combat & progression so armies advance without overlapping into one another
+  // Individual soldier-level combat & progression so armies advance with clear breathing room between combatants
   const updateSimulation = (rawDt, dt) => {
     simFrameCounter++;
     for (let i = combatEffects.length - 1; i >= 0; i--) {
@@ -470,8 +474,10 @@ export function createUnitSystem({
     }
 
     const soldierCount = allAliveSoldiers.length;
-    const minSoldierSep = 0.68;
-    const minSoldierSepSq = minSoldierSep * minSoldierSep;
+    const minSameTeamSep = 0.88;
+    const minSameTeamSepSq = minSameTeamSep * minSameTeamSep;
+    const minEnemyMeleeGap = 1.18;
+    const minEnemyMeleeGapSq = minEnemyMeleeGap * minEnemyMeleeGap;
 
     // 1. Advance each alive soldier & resolve engagements individually
     for (let i = 0; i < soldierCount; i++) {
@@ -506,8 +512,8 @@ export function createUnitSystem({
 
       if (canAttack && ent.cooldown <= 0) {
         didAttack = true;
-        ent.attackTimer = 0.22;
-        ent.cooldown = u.def.cd * (0.9 + ((ent.index % 5) * 0.05));
+        ent.attackTimer = 0.28;
+        ent.cooldown = u.def.cd * (0.95 + ((ent.index % 5) * 0.08));
         ent.yaw = Math.atan2(nearestEnemyEnt.pos.x - ent.pos.x, nearestEnemyEnt.pos.z - ent.pos.z);
 
         const targetTerrain = getTerrainInfoAt(nearestEnemyEnt.pos.x, nearestEnemyEnt.pos.z);
@@ -522,7 +528,7 @@ export function createUnitSystem({
 
         if (u.def.id === "matchlock" || u.def.id === "cannon") {
           spawnCombatFlash(ent.pos, true, u.def.id === "cannon" ? 0.65 : 0.38);
-        } else if (!u.def.ranged && (ent.index + simFrameCounter) % 3 === 0) {
+        } else if (!u.def.ranged && (ent.index + simFrameCounter) % 2 === 0) {
           spawnAttackSlash(ent.pos, nearestEnemyEnt.pos, ent.team);
         }
 
@@ -555,7 +561,16 @@ export function createUnitSystem({
       if (!u.hold && u.order !== "halt") {
         if (ent.targetPos) moveDest = ent.targetPos;
         else if (u.targetPos) moveDest = u.targetPos;
-        else if (nearestEnemyEnt && nearestDist > effectiveRange * 0.85) moveDest = nearestEnemyEnt.pos;
+        else if (nearestEnemyEnt && nearestDist > Math.max(1.25, effectiveRange * 0.85)) {
+          const ddx = nearestEnemyEnt.pos.x - ent.pos.x;
+          const ddz = nearestEnemyEnt.pos.z - ent.pos.z;
+          const dLen = Math.max(0.001, Math.hypot(ddx, ddz));
+          const standOff = u.def.ranged ? effectiveRange * 0.82 : 1.15;
+          moveDest = {
+            x: nearestEnemyEnt.pos.x - (ddx / dLen) * standOff,
+            z: nearestEnemyEnt.pos.z - (ddz / dLen) * standOff
+          };
+        }
       }
 
       let isMoving = false;
@@ -576,7 +591,7 @@ export function createUnitSystem({
         }
       }
 
-      // Soldier-to-soldier separation so individual soldiers progress cleanly without overlapping
+      // Soldier-to-soldier spacing so allies keep formation gaps and opposing fighters keep readable melee/ranged gaps
       const sepStride = soldierCount > 350 ? 2 : 1;
       if ((i + simFrameCounter) % sepStride === 0) {
         for (let j = i + 1; j < soldierCount; j++) {
@@ -584,9 +599,12 @@ export function createUnitSystem({
           const sdx = ent.pos.x - otherEnt.pos.x;
           const sdz = ent.pos.z - otherEnt.pos.z;
           const sdistSq = sdx * sdx + sdz * sdz;
-          if (sdistSq > 0.000001 && sdistSq < minSoldierSepSq) {
+          const sameTeam = otherEnt.team === ent.team;
+          const desiredGap = sameTeam ? minSameTeamSep : minEnemyMeleeGap;
+          const desiredGapSq = sameTeam ? minSameTeamSepSq : minEnemyMeleeGapSq;
+          if (sdistSq > 0.000001 && sdistSq < desiredGapSq) {
             const sdist = Math.sqrt(sdistSq);
-            const push = (minSoldierSep - sdist) * 1.65 * dt;
+            const push = (desiredGap - sdist) * (sameTeam ? 1.6 : 1.25) * dt;
             const nx = (sdx / sdist) * push;
             const nz = (sdz / sdist) * push;
             ent.pos.x += nx;
@@ -597,7 +615,6 @@ export function createUnitSystem({
         }
       }
 
-      u.animTime += dt * (u.order === "run" ? 11.5 : 7.2) * 0.05;
       updateSoldierVisual(u, ent, rawDt, dt, isMoving, didAttack);
     }
 
