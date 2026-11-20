@@ -30,6 +30,8 @@ export function createUnitSystem({
     if (markerTextureCache.has(key)) return markerTextureCache.get(key);
     const iconImg = await loadIcon(unitDef.icon);
     const dt = new BABYLON.DynamicTexture(`marker_${key}`, { width: 128, height: 128 }, scene, true);
+    dt.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+    dt.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
     const ctx = dt.getContext();
     ctx.clearRect(0, 0, 128, 128);
 
@@ -78,12 +80,12 @@ export function createUnitSystem({
     const root = new BABYLON.TransformNode(`unit_${unitDef.id}_${Date.now()}_${Math.random()}`, scene);
     root.position.set(point.x, y, point.z);
 
-    const plane = BABYLON.MeshBuilder.CreatePlane("marker", { size: 2.1 }, scene);
+    const plane = BABYLON.MeshBuilder.CreatePlane("marker", { size: 1.05 }, scene);
     plane.parent = root;
     plane.rotation.x = Math.PI / 2.35;
-    plane.position.y = 1.25;
+    plane.position.y = 1.05;
 
-    const mat = new BABYLON.StandardMaterial(`mat_${unitDef.id}_${team}`, scene);
+    const mat = new BABYLON.StandardMaterial(`mat_${unitDef.id}_${team}_${Date.now()}`, scene);
     mat.diffuseTexture = await getMarkerTexture(unitDef, team);
     mat.diffuseTexture.hasAlpha = true;
     mat.useAlphaFromDiffuseTexture = true;
@@ -101,8 +103,8 @@ export function createUnitSystem({
     for (let i = 0; i < unitDef.squadSize; i++) {
       const r = Math.floor(i / cols);
       const c = i % cols;
-      const lx = (c - (cols - 1) / 2) * 0.72;
-      const lz = 1.1 + r * 0.72;
+      const lx = (c - (cols - 1) / 2) * 0.52;
+      const lz = 0.72 + r * 0.52;
 
       const spriteCol = isMounted
         ? 5 + (i % 3)
@@ -112,16 +114,16 @@ export function createUnitSystem({
 
       const fallenCol = isMounted ? (i % 8) : (isHeavyInfantry ? 4 + (i % 4) : (i % 4));
 
-      const sm = createSpritePlane(`s_${i}`, spriteCol, aliveRow, isMounted ? 1.25 : 1.0, isMounted ? 1.25 : 1.1);
+      const sm = createSpritePlane(`s_${i}`, spriteCol, aliveRow, isMounted ? 0.95 : 0.78, isMounted ? 0.95 : 0.85);
       sm.parent = root;
-      sm.position.set(lx, 0.5, lz);
+      sm.position.set(lx, 0.42, lz);
       sm.metadata = { aliveCol: spriteCol, aliveRow, fallenCol, fallenRow, fallen: false };
       soldiers.push(sm);
     }
 
-    const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: 2.3, thickness: 0.13, tessellation: 24 }, scene);
+    const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: 1.45, thickness: 0.08, tessellation: 24 }, scene);
     selRing.parent = root;
-    selRing.position.y = 0.12;
+    selRing.position.y = 0.08;
     selRing.isPickable = false;
     const selMat = new BABYLON.StandardMaterial("selMat", scene);
     selMat.emissiveColor = new BABYLON.Color3(1, 0.88, 0.25);
@@ -200,7 +202,7 @@ export function createUnitSystem({
     for (let i = combatEffects.length - 1; i >= 0; i--) {
       combatEffects[i].ttl -= rawDt;
       if (combatEffects[i].ttl <= 0) {
-        combatEffects.splice(i, 1)[0].mesh.dispose();
+        combatEffects[i].mesh.dispose();
       }
     }
 
