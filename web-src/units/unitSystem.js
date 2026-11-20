@@ -1,9 +1,11 @@
 import * as BABYLON from "@babylonjs/core";
+import { MAP_RADIUS } from "../config/gameData.js";
 import { createUnitBillboardAtlas, getUnitBillboardSpec } from "./unitBillboards.js";
 
 const DEAD_CLEANUP_DELAY = 1.6;
 const FRONT_CONE_HALF_ANGLE = (55 * Math.PI) / 180;
 const PROXIMITY_REACTION_RADIUS = 3.2;
+const MAX_PLAYABLE_RADIUS = Math.max(8, (MAP_RADIUS || 52) - 1.5);
 const FORMATION_COLUMNS_BY_SIZE = Object.freeze({
   10: 5,
   50: 10,
@@ -30,6 +32,60 @@ export function createUnitSystem({
     while (a > Math.PI) a -= Math.PI * 2;
     while (a < -Math.PI) a += Math.PI * 2;
     return a;
+  };
+
+  const clampToPlayableMap = (x, z) => {
+    const r = Math.hypot(x, z);
+    if (r <= MAX_PLAYABLE_RADIUS || r <= 0.0001) {
+      return { x, z };
+    }
+    const scale = MAX_PLAYABLE_RADIUS / r;
+    return { x: x * scale, z: z * scale };
+  };
+
+  // Pathfinding helper: evaluates candidate steering angles around obstacles/deep water/trees toward goal
+  const computePathStepDirection = (unitObj, fromX, fromZ, goalX, goalZ, dt) => {
+    const clampedGoal = clampToPlayableMap(goalX, goalZ);
+    const toGoalX = clampedGoal.x - fromX;
+    const toGoalZ = clampedGoal.z - fromZ;
+    const goalDist = Math.hypot(toGoalX, toGoalZ);
+    if (goalDist <= 0.001) {
+      return { dirX: 0, dirZ: 0, dist: 0, yaw: null };
+    }
+
+    const desiredYaw = Math.atan2(toGoalX, toGoalZ);
+    const probeDist = Math.min(goalDist, 2.4);
+    const candidateOffsets = [0, -0.45, 0.45, -0.9, 0.9, -1.35, 1.35];
+
+    let bestYaw = desiredYaw;
+    let bestScore = Infinity;
+
+    for (const offset of candidateOffsets) {
+      const testYaw = normalizeAngle(desiredYaw + offset);
+      const px = fromX + Math.sin(testYaw) * probeDist;
+      const pz = fromZ + Math.cos(testYaw) * probeDist;
+      const clampedProbe = clampToPlayableMap(px, pz);
+      const tInfo = getTerrainInfoAt(clampedProbe.x, clampedProbe.z);
+
+      // Penalize water/trees/steep terrain so pathfinding steers around hazards when possible
+      let terrainPenalty = 0;
+      if (tInfo?.type === "water") terrainPenalty = 3.2;
+      else if (tInfo?.type === "trees") terrainPenalty = 1.6;
+      else if (tInfo?.speedMult && tInfo.speedMult < 0.85) terrainPenalty = (1 - tInfo.speedMult) * 2.0;
+
+      const remDist = Math.hypot(clampedGoal.x - clampedProbe.x, clampedGoal.z - clampedProbe.z);
+      const turnCost = Math.abs(offset) * 0.55;
+      const score = remDist + terrainPenalty + turnCost;
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestYaw = testYaw;
+      }
+    }
+
+    const dirX = Math.sin(bestYaw);
+    const dirZ = Math.cos(bestYaw);
+    return { dirX, dirZ, dist: goalDist, yaw: bestYaw };
   };
 
   // Yaw convention matches atan2(dx, dz) where facing angle 0 points along +Z and angle +PI/2 points along +X
@@ -367,13 +423,14 @@ export function createUnitSystem({
       const c = i % cols;
       const lx = count === 1 ? 0 : (c - (cols - 1) / 2) * spacing;
       const lz = count === 1 ? 0 : (r - (rows - 1) / 2) * spacing;
+      const clampedPos = clampToPlayableMap(centerPt.x + lx, centerPt.z + lz);
       const entity = createSoldierEntity(
         unitObj,
         unitDef,
         team,
         i,
-        centerPt.x + lx,
-        centerPt.z + lz,
+        clampedPos.x,
+        clampedPos.z,
         lx,
         lz
       );
@@ -391,9 +448,10 @@ export function createUnitSystem({
 
   const spawnUnit = async (point, unitDef, team, activeOrder, soldierCount = 10) => {
     const count = Math.max(1, Number(soldierCount) || 10);
-    const y = getGroundHeightAt(point.x, point.z);
+    const clampedCenter = clampToPlayableMap(point.x, point.z);
+    const y = getGroundHeightAt(clampedCenter.x, clampedCenter.z);
     const root = new BABYLON.TransformNode(`unit_${unitDef.id}_${Date.now()}_${Math.random()}`, scene);
-    root.position.set(point.x, y, point.z);
+    root.position.set(clampedCenter.x, y, clampedCenter.z);
 
     const initialYaw = team === 1 ? 0 : Math.PI;
     const unitObj = {
@@ -407,7 +465,7 @@ export function createUnitSystem({
       armor: unitDef.armor ?? 4,
       morale: unitDef.morale ?? 70,
       sightRange: unitDef.sightRange ?? Math.max(16, (unitDef.range ?? 3) * 1.35),
-      pos: new BABYLON.Vector3(point.x, y, point.z),
+      pos: new BABYLON.Vector3(clampedCenter.x, y, clampedCenter.z),
       targetPos: null,
       yaw: initialYaw,
       cooldown: 0,
@@ -424,7 +482,7 @@ export function createUnitSystem({
       selRing: null
     };
 
-    const formation = createFormationEntities(unitObj, point, unitDef, team, count);
+    const formation = createFormationEntities(unitObj, clampedCenter, unitDef, team, count);
     unitObj.entities = formation.entities;
 
     const barWidth = computeFormationHpBarWidth(count, unitDef, formation.cols, formation.spacing);
@@ -433,7 +491,7 @@ export function createUnitSystem({
     unitObj.hpBar = hpBar;
 
     unitObj.rangeOutline = createRangeOutline(root, unitDef, team);
-    updateRangeOutline(unitObj, getTerrainInfoAt(point.x, point.z));
+    updateRangeOutline(unitObj, getTerrainInfoAt(clampedCenter.x, clampedCenter.z));
 
     const ringDiameter = Math.max(1.0, Math.hypot(formation.cols * formation.spacing, formation.rows * formation.spacing) * 0.62);
     const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: ringDiameter, thickness: 0.05, tessellation: 20 }, scene);
@@ -522,10 +580,11 @@ export function createUnitSystem({
 
       const rotX = lx * cosY + lz * sinY;
       const rotZ = -lx * sinY + lz * cosY;
+      const clampedSlot = clampToPlayableMap(destX + rotX, destZ + rotZ);
       ent.targetPos = new BABYLON.Vector3(
-        destX + rotX,
-        getGroundHeightAt(destX + rotX, destZ + rotZ),
-        destZ + rotZ
+        clampedSlot.x,
+        getGroundHeightAt(clampedSlot.x, clampedSlot.z),
+        clampedSlot.z
       );
       ent.yaw = facingYaw;
     });
@@ -543,8 +602,9 @@ export function createUnitSystem({
       const c = i % cols;
       const ox = (c - (cols - 1) / 2) * spacing;
       const oz = (r - (rowsCount - 1) / 2) * spacing;
-      const destX = centerPt.x + ox;
-      const destZ = centerPt.z + oz;
+      const clampedDest = clampToPlayableMap(centerPt.x + ox, centerPt.z + oz);
+      const destX = clampedDest.x;
+      const destZ = clampedDest.z;
       const moveAngle = aimAngle !== null
         ? aimAngle
         : Math.atan2(destX - u.pos.x, destZ - u.pos.z);
@@ -559,7 +619,7 @@ export function createUnitSystem({
     });
   };
 
-  // Smoothly assign row & column formation slots so soldiers walk/march into formation rather than teleporting
+  // Smoothly assign row & column formation slots without rotating/circling on minor changes
   const reformUnitFormation = (unitObj, anchorX, anchorZ, facingYaw, snapInPlace = false) => {
     const aliveEnts = unitObj.entities.filter((e) => e.alive && e.hp > 0);
     if (!aliveEnts.length) return;
@@ -580,15 +640,14 @@ export function createUnitSystem({
 
       const rotX = lx * cosY + lz * sinY;
       const rotZ = -lx * sinY + lz * cosY;
-      const slotX = anchorX + rotX;
-      const slotZ = anchorZ + rotZ;
+      const clampedSlot = clampToPlayableMap(anchorX + rotX, anchorZ + rotZ);
 
       if (snapInPlace) {
-        ent.pos.x = slotX;
-        ent.pos.z = slotZ;
+        ent.pos.x = clampedSlot.x;
+        ent.pos.z = clampedSlot.z;
         ent.targetPos = null;
       } else {
-        ent.targetPos = new BABYLON.Vector3(slotX, getGroundHeightAt(slotX, slotZ), slotZ);
+        ent.targetPos = new BABYLON.Vector3(clampedSlot.x, getGroundHeightAt(clampedSlot.x, clampedSlot.z), clampedSlot.z);
       }
       ent.yaw = facingYaw;
     });
@@ -718,7 +777,7 @@ export function createUnitSystem({
       return {
         enemy: bestInSightEnemy,
         dist,
-        canAttackNow: withinAttackRange && clearLineOfSightCheck(u, ent, bestInSightEnemy),
+        canAttackNow: withinAttackRange && hasClearLineOfSight(u, ent.pos.x, ent.pos.z, bestInSightEnemy.pos.x, bestInSightEnemy.pos.z),
         isProximityReaction: false
       };
     }
@@ -742,16 +801,7 @@ export function createUnitSystem({
     };
   };
 
-  const clearLineOfSightCheck = (unitObj, attackerEnt, defenderEnt) =>
-    hasClearLineOfSight(
-      unitObj,
-      attackerEnt.pos.x,
-      attackerEnt.pos.z,
-      defenderEnt.pos.x,
-      defenderEnt.pos.z
-    );
-
-  // Individual soldier-level combat & progression with forward-only front sight cones and row/column destination alignment
+  // Individual soldier-level combat & pathfinding without circling on state changes
   const updateSimulation = (rawDt, dt) => {
     simFrameCounter++;
     for (let i = combatEffects.length - 1; i >= 0; i--) {
@@ -798,7 +848,7 @@ export function createUnitSystem({
     const minEnemyMeleeGap = 1.18;
     const minEnemyMeleeGapSq = minEnemyMeleeGap * minEnemyMeleeGap;
 
-    // 1. Advance each alive soldier & resolve engagements
+    // 1. Advance each alive soldier along computed path & resolve engagements
     for (let i = 0; i < soldierCount; i++) {
       const ent = allAliveSoldiers[i];
       const u = ent.unit;
@@ -818,7 +868,6 @@ export function createUnitSystem({
         u.inBattleThisTick = true;
       }
 
-      // Turn toward a close enemy reacting near the soldier so it can face and engage it
       if (nearestEnemyEnt && targetInfo.isProximityReaction) {
         ent.yaw = Math.atan2(nearestEnemyEnt.pos.x - ent.pos.x, nearestEnemyEnt.pos.z - ent.pos.z);
       }
@@ -875,13 +924,13 @@ export function createUnitSystem({
         }
       }
 
-      // Mark unit for smooth formation reform whenever a previously engaged soldier has no enemy to fight
       if (!nearestEnemyEnt && ent.wasEngaged) {
         ent.wasEngaged = false;
         u.needsReform = true;
       }
 
       let moveDest = null;
+      const hasExplicitSlotGoal = Boolean(ent.targetPos);
       if (!u.hold && u.order !== "halt") {
         if (ent.targetPos) moveDest = ent.targetPos;
         else if (u.targetPos) moveDest = u.targetPos;
@@ -899,28 +948,31 @@ export function createUnitSystem({
 
       let isMoving = false;
       if (moveDest) {
-        const dx = moveDest.x - ent.pos.x;
-        const dz = moveDest.z - ent.pos.z;
-        const dist = Math.hypot(dx, dz);
-        if (dist > 0.14) {
+        const path = computePathStepDirection(u, ent.pos.x, ent.pos.z, moveDest.x, moveDest.z, dt);
+        if (path.dist > 0.14) {
           isMoving = true;
           const moraleSpeedMult = ent.morale < 25 ? 0.75 : 1.0;
           const runMult = u.order === "run" ? 1.65 : 1.0;
-          const step = Math.min(dist, u.def.speed * runMult * tInfo.speedMult * moraleSpeedMult * dt);
-          ent.pos.x += (dx / dist) * step;
-          ent.pos.z += (dz / dist) * step;
-          if (!ent.targetPos) {
-            ent.yaw = Math.atan2(dx, dz);
+          const step = Math.min(path.dist, u.def.speed * runMult * tInfo.speedMult * moraleSpeedMult * dt);
+          const nextClamped = clampToPlayableMap(
+            ent.pos.x + path.dirX * step,
+            ent.pos.z + path.dirZ * step
+          );
+          ent.pos.x = nextClamped.x;
+          ent.pos.z = nextClamped.z;
+          if (!hasExplicitSlotGoal && path.yaw !== null) {
+            ent.yaw = path.yaw;
           }
         } else if (ent.targetPos) {
-          ent.pos.x = ent.targetPos.x;
-          ent.pos.z = ent.targetPos.z;
+          const finalClamped = clampToPlayableMap(ent.targetPos.x, ent.targetPos.z);
+          ent.pos.x = finalClamped.x;
+          ent.pos.z = finalClamped.z;
           ent.targetPos = null;
           ent.yaw = u.yaw;
         }
       }
 
-      // Apply soldier separation only while fighting or approaching a slot, stopping once in formation so units never circle
+      // Apply soldier separation only while actively fighting or approaching an unreached slot
       const sepStride = soldierCount > 350 ? 2 : 1;
       const isApproachingSlot = Boolean(ent.targetPos) && !u.arrivedFormationReady;
       const shouldSeparate = u.inBattleThisTick || isApproachingSlot;
@@ -938,10 +990,12 @@ export function createUnitSystem({
             const push = (desiredGap - sdist) * (sameTeam ? 1.35 : 1.25) * dt;
             const nx = (sdx / sdist) * push;
             const nz = (sdz / sdist) * push;
-            ent.pos.x += nx;
-            ent.pos.z += nz;
-            otherEnt.pos.x -= nx;
-            otherEnt.pos.z -= nz;
+            const cA = clampToPlayableMap(ent.pos.x + nx, ent.pos.z + nz);
+            const cB = clampToPlayableMap(otherEnt.pos.x - nx, otherEnt.pos.z - nz);
+            ent.pos.x = cA.x;
+            ent.pos.z = cA.z;
+            otherEnt.pos.x = cB.x;
+            otherEnt.pos.z = cB.z;
           }
         }
       }
@@ -949,7 +1003,7 @@ export function createUnitSystem({
       updateSoldierVisual(u, ent, rawDt, dt, isMoving, didAttack);
     }
 
-    // 2. Keep formation anchors, health bars & ranged outlines centered/updated on surviving soldiers
+    // 2. Keep formation anchors, health bars & ranged outlines centered/updated without circling
     for (const u of aliveUnits) {
       const aliveEnts = u.entities.filter((e) => e.alive && e.hp > 0);
       if (!aliveEnts.length) continue;
@@ -960,19 +1014,9 @@ export function createUnitSystem({
         sumX += e.pos.x;
         sumZ += e.pos.z;
       }
-      const cx = sumX / aliveEnts.length;
-      const cz = sumZ / aliveEnts.length;
-
-      // Sync formation yaw to average facing of surviving soldiers so front-sight cone matches facing
-      let sinSum = 0;
-      let cosSum = 0;
-      for (const e of aliveEnts) {
-        sinSum += Math.sin(e.yaw);
-        cosSum += Math.cos(e.yaw);
-      }
-      if (Math.hypot(sinSum, cosSum) > 0.001 && !u.arrivedFormationReady) {
-        u.yaw = Math.atan2(sinSum, cosSum);
-      }
+      const clampedCenter = clampToPlayableMap(sumX / aliveEnts.length, sumZ / aliveEnts.length);
+      const cx = clampedCenter.x;
+      const cz = clampedCenter.z;
 
       u.pos.set(cx, getGroundHeightAt(cx, cz), cz);
       u.root.position.copyFrom(u.pos);
@@ -980,13 +1024,12 @@ export function createUnitSystem({
 
       const anySoldierStillMovingToSlot = aliveEnts.some((e) => Boolean(e.targetPos));
       if (u.targetPos && !anySoldierStillMovingToSlot) {
-        const anchorX = u.targetPos.x;
-        const anchorZ = u.targetPos.z;
+        const clampedGoal = clampToPlayableMap(u.targetPos.x, u.targetPos.z);
         u.targetPos = null;
         if (!u.arrivedFormationReady) {
           u.arrivedFormationReady = true;
-          reformUnitFormation(u, anchorX, anchorZ, u.yaw, false);
-          u.pos.set(anchorX, getGroundHeightAt(anchorX, anchorZ), anchorZ);
+          reformUnitFormation(u, clampedGoal.x, clampedGoal.z, u.yaw, false);
+          u.pos.set(clampedGoal.x, getGroundHeightAt(clampedGoal.x, clampedGoal.z), clampedGoal.z);
           u.root.position.copyFrom(u.pos);
         }
       } else if (!u.inBattleThisTick && !anySoldierStillMovingToSlot && u.needsReform) {
