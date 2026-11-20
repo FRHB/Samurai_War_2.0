@@ -58,6 +58,53 @@ export function createUnitSystem({
     combatEffects.push({ mesh: slash, ttl: 0.18, startScale: 1, isFlash: true });
   };
 
+  // Light team-colored range outline ring for ranged units (bow, matchlock, cannon)
+  const createRangeOutline = (root, unitDef, team) => {
+    if (!unitDef?.ranged || !unitDef?.range) return null;
+    const isRed = team === 1;
+    const outlineColor = isRed
+      ? new BABYLON.Color3(1.0, 0.36, 0.36)
+      : new BABYLON.Color3(0.36, 0.68, 1.0);
+
+    const ring = BABYLON.MeshBuilder.CreateTorus(
+      `rangeOutline_${unitDef.id}_${team}_${Math.random().toString(36).slice(2, 6)}`,
+      {
+        diameter: unitDef.range * 2,
+        thickness: 0.085,
+        tessellation: 64
+      },
+      scene
+    );
+    ring.parent = root;
+    ring.position.y = 0.07;
+    ring.isPickable = false;
+
+    const mat = new BABYLON.StandardMaterial(`rangeMat_${unitDef.id}_${team}_${Math.random().toString(36).slice(2, 6)}`, scene);
+    mat.diffuseColor = outlineColor;
+    mat.emissiveColor = outlineColor.scale(0.65);
+    mat.alpha = 0.36;
+    mat.backFaceCulling = false;
+    ring.material = mat;
+
+    ring.onDisposeObservable.add(() => mat.dispose());
+    return { ring, mat, baseRange: unitDef.range };
+  };
+
+  const updateRangeOutline = (unitObj, tInfo) => {
+    if (!unitObj.rangeOutline) return;
+    const { ring, mat, baseRange } = unitObj.rangeOutline;
+    if (ring.isDisposed()) return;
+    if (unitObj.hp <= 0) {
+      ring.setEnabled(false);
+      return;
+    }
+    const effectiveRange = tInfo?.type === "hills" ? baseRange * 1.15 : baseRange;
+    const scaleRatio = effectiveRange / Math.max(0.01, baseRange);
+    ring.scaling.set(scaleRatio, 1, scaleRatio);
+    mat.alpha = unitObj.selected ? 0.56 : 0.34;
+    ring.setEnabled(true);
+  };
+
   // Scale health bar width to unit count and per-unit max HP so each soldier has real HP
   const computeFormationHpBarWidth = (count, unitDef, cols, spacing) => {
     const typeHpScale = Math.min(1.35, Math.max(0.75, (unitDef?.hp ?? 50) / 55));
@@ -264,6 +311,7 @@ export function createUnitSystem({
       deadTimer: null,
       root,
       hpBar: null,
+      rangeOutline: null,
       entities: [],
       selRing: null
     };
@@ -275,6 +323,9 @@ export function createUnitSystem({
     const hpBar = createHpBar(root, team, barWidth);
     hpBar.barHolder.position.y = formation.barY;
     unitObj.hpBar = hpBar;
+
+    unitObj.rangeOutline = createRangeOutline(root, unitDef, team);
+    updateRangeOutline(unitObj, getTerrainInfoAt(point.x, point.z));
 
     const ringDiameter = Math.max(1.0, Math.hypot(formation.cols * formation.spacing, formation.rows * formation.spacing) * 0.62);
     const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: ringDiameter, thickness: 0.05, tessellation: 20 }, scene);
@@ -303,6 +354,7 @@ export function createUnitSystem({
     if (unit.hp <= 0) return;
     unit.selected = !unit.selected;
     unit.selRing.setEnabled(unit.selected);
+    updateRangeOutline(unit, getTerrainInfoAt(unit.pos.x, unit.pos.z));
   };
 
   const issueOrderToSelected = (order) => {
@@ -381,6 +433,7 @@ export function createUnitSystem({
         ent.node.dispose();
       }
     }
+    unitObj.rangeOutline?.ring?.dispose?.();
     unitObj.root.dispose();
   };
 
@@ -549,6 +602,9 @@ export function createUnitSystem({
             nearestEnemyEnt.unit.deadTimer = DEAD_CLEANUP_DELAY;
             nearestEnemyEnt.unit.hpBar?.barHolder?.setEnabled?.(false);
             nearestEnemyEnt.unit.selRing?.setEnabled?.(false);
+            if (nearestEnemyEnt.unit.rangeOutline?.ring) {
+              nearestEnemyEnt.unit.rangeOutline.ring.setEnabled(false);
+            }
             soundManager.playRandomCasualty();
           }
         } else {
@@ -618,7 +674,7 @@ export function createUnitSystem({
       updateSoldierVisual(u, ent, rawDt, dt, isMoving, didAttack);
     }
 
-    // 2. Keep formation anchors & health bars centered on surviving soldiers
+    // 2. Keep formation anchors, health bars & ranged outlines centered/updated on surviving soldiers
     for (const u of aliveUnits) {
       const aliveEnts = u.entities.filter((e) => e.alive && e.hp > 0);
       if (!aliveEnts.length) continue;
@@ -635,6 +691,7 @@ export function createUnitSystem({
       u.root.position.copyFrom(u.pos);
       u.root.rotation.y = u.yaw;
       updateHpBar(u);
+      updateRangeOutline(u, getTerrainInfoAt(cx, cz));
 
       // Update any newly fallen entities in this formation
       for (const e of u.entities) {
