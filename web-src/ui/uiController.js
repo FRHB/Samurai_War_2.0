@@ -347,7 +347,6 @@ export function bootstrapGame() {
   const world = createBabylonWorld(canvas);
   const {
     scene,
-    camera,
     ground,
     groundMat,
     createSpritePlane,
@@ -434,7 +433,7 @@ export function bootstrapGame() {
       ui.setStatusMessage(
         state.pointerAction === "deploy"
           ? `Deploy active (${state.selectedUnitDef.label} x${state.selectedUnitSize}).`
-          : "Move / Select active: click/drag to select or issue orders."
+          : "Right-click units to select (Shift+Right-Click for multi-select), click empty space to deselect, left-click map to move."
       );
     },
     onUnitTypeChange: (unitId) => {
@@ -499,13 +498,20 @@ export function bootstrapGame() {
     return null;
   };
 
-  let isDragging = false;
+  const pickUnitAtClientCoords = (clientX, clientY) => {
+    const local = toCanvasLocalCoords(clientX, clientY);
+    const unitPick = scene.pick(local.x, local.y, (mesh) => Boolean(mesh?.metadata?.unit));
+    return unitPick?.hit ? unitPick.pickedMesh?.metadata?.unit : null;
+  };
+
+  let isRightBoxSelecting = false;
+  let isEditorPainting = false;
   let dragStart = null;
   let dragCurrent = null;
-  let orderDragStart = null;
+  let moveAimStart = null;
 
   const updateBox = () => {
-    if (!isDragging || !dragStart || !dragCurrent) {
+    if (!isRightBoxSelecting || !dragStart || !dragCurrent) {
       selectionBox.style.display = "none";
       return;
     }
@@ -521,10 +527,26 @@ export function bootstrapGame() {
   canvas.addEventListener("pointerdown", (e) => {
     const pt = pickGround(e.clientX, e.clientY);
 
+    // Right-click: select unit on a unit, deselect on empty space, or Shift+Right-Click drag for multi-group selection
     if (e.button === 2) {
-      if (pt && unitSystem.getSelectedAliveUnits().length > 0) {
-        orderDragStart = pt.clone();
-        updateOrderArrow?.(orderDragStart, pt);
+      if (e.shiftKey) {
+        isRightBoxSelecting = true;
+        dragStart = { x: e.clientX, y: e.clientY };
+        dragCurrent = { x: e.clientX, y: e.clientY };
+        updateBox();
+        return;
+      }
+
+      const pickedUnit = pickUnitAtClientCoords(e.clientX, e.clientY);
+      if (pickedUnit && pickedUnit.hp > 0) {
+        unitSystem.clearSelection();
+        unitSystem.setUnitSelected(pickedUnit, true);
+        soundManager?.playSfx?.(soundManager?.sfx?.select);
+        ui.setStatusMessage(`Selected ${pickedUnit.def.label} (Team ${pickedUnit.team}).`);
+      } else {
+        unitSystem.clearSelection();
+        soundManager?.playSfx?.(soundManager?.sfx?.select);
+        ui.setStatusMessage("Selection cleared.");
       }
       return;
     }
@@ -540,28 +562,27 @@ export function bootstrapGame() {
         } else {
           terrainSystem.spawnTerrainFeature(pt, state.selectedEditorTool);
         }
-        isDragging = true;
+        isEditorPainting = true;
       }
       return;
     }
 
-    if (state.pointerAction === "deploy") {
-      if (pt) {
-        unitSystem.spawnUnit(
-          pt,
-          state.selectedUnitDef,
-          state.activeTeam,
-          state.activeOrder,
-          state.selectedUnitSize
-        );
-      }
+    // Left-click: move currently selected unit(s) to clicked map location, or deploy when Deploy tool is active
+    if (unitSystem.getSelectedAliveUnits().length > 0 && pt) {
+      moveAimStart = pt.clone();
+      updateOrderArrow?.(moveAimStart, pt);
       return;
     }
 
-    isDragging = true;
-    dragStart = { x: e.clientX, y: e.clientY };
-    dragCurrent = { x: e.clientX, y: e.clientY };
-    updateBox();
+    if (state.pointerAction === "deploy" && pt) {
+      unitSystem.spawnUnit(
+        pt,
+        state.selectedUnitDef,
+        state.activeTeam,
+        state.activeOrder,
+        state.selectedUnitSize
+      );
+    }
   });
 
   window.addEventListener("pointermove", (e) => {
@@ -579,102 +600,88 @@ export function bootstrapGame() {
       cursorRing?.setEnabled?.(false);
     }
 
-    if (orderDragStart && pt) {
-      updateOrderArrow?.(orderDragStart, pt);
+    if (moveAimStart && pt) {
+      updateOrderArrow?.(moveAimStart, pt);
       return;
     }
 
-    if (!isDragging) return;
-
-    if (state.mode === "editor") {
+    if (isEditorPainting) {
       if (pt && state.selectedEditorTool && state.selectedEditorTool.id !== "erase") {
         terrainSystem.spawnTerrainFeature(pt, state.selectedEditorTool);
       }
       return;
     }
 
-    dragCurrent = { x: e.clientX, y: e.clientY };
-    updateBox();
+    if (isRightBoxSelecting) {
+      dragCurrent = { x: e.clientX, y: e.clientY };
+      updateBox();
+    }
   });
 
   window.addEventListener("pointerup", (e) => {
-    if (orderDragStart) {
-      const endPt = pickGround(e.clientX, e.clientY) || orderDragStart;
-      const dx = endPt.x - orderDragStart.x;
-      const dz = endPt.z - orderDragStart.z;
+    if (moveAimStart) {
+      const endPt = pickGround(e.clientX, e.clientY) || moveAimStart;
+      const dx = endPt.x - moveAimStart.x;
+      const dz = endPt.z - moveAimStart.z;
       const aimAngle = Math.hypot(dx, dz) > 0.6 ? Math.atan2(dx, dz) : null;
-      unitSystem.commandSelectedMoveTo(orderDragStart, aimAngle);
+      unitSystem.commandSelectedMoveTo(moveAimStart, aimAngle);
       soundManager?.playSfx?.(soundManager?.sfx?.move);
-      orderDragStart = null;
+      ui.setStatusMessage("Selected unit(s) ordered to move to target location.");
+      moveAimStart = null;
       hideOrderArrow?.();
       return;
     }
 
-    if (!isDragging) return;
-    isDragging = false;
-    selectionBox.style.display = "none";
-
-    if (state.mode === "editor") {
-      dragStart = null;
-      dragCurrent = null;
+    if (isEditorPainting) {
+      isEditorPainting = false;
       return;
     }
 
-    const endX = e.clientX;
-    const endY = e.clientY;
-    const moved = dragStart ? Math.hypot(endX - dragStart.x, endY - dragStart.y) : 0;
+    if (isRightBoxSelecting) {
+      isRightBoxSelecting = false;
+      selectionBox.style.display = "none";
 
-    if (moved < 6) {
-      const local = toCanvasLocalCoords(endX, endY);
-      const unitPick = scene.pick(local.x, local.y, (mesh) => Boolean(mesh?.metadata?.unit));
-      const pickedUnit = unitPick?.hit ? unitPick.pickedMesh?.metadata?.unit : null;
+      if (dragStart) {
+        const minX = Math.min(dragStart.x, e.clientX);
+        const maxX = Math.max(dragStart.x, e.clientX);
+        const minY = Math.min(dragStart.y, e.clientY);
+        const maxY = Math.max(dragStart.y, e.clientY);
 
-      if (pickedUnit && pickedUnit.hp > 0) {
-        if (pickedUnit.team === state.activeTeam) {
-          unitSystem.toggleUnitSelection(pickedUnit);
-        } else if (unitSystem.getSelectedAliveUnits().length > 0) {
-          unitSystem.commandSelectedMoveTo(pickedUnit.pos.clone(), null);
+        const rect = canvas.getBoundingClientRect();
+        const width = engine.getRenderWidth();
+        const height = engine.getRenderHeight();
+        const scaleX = width > 0 && rect.width > 0 ? rect.width / width : 1;
+        const scaleY = height > 0 && rect.height > 0 ? rect.height / height : 1;
+        const transformMatrix = scene.getTransformMatrix();
+
+        let selectedCount = 0;
+        for (const u of unitSystem.units || []) {
+          if (u.hp <= 0) continue;
+          const proj = BABYLON.Vector3.Project(u.pos, BABYLON.Matrix.Identity(), transformMatrix, {
+            x: 0,
+            y: 0,
+            width,
+            height
+          });
+          const sx = rect.left + proj.x * scaleX;
+          const sy = rect.top + proj.y * scaleY;
+          const inRect = sx >= minX && sx <= maxX && sy >= minY && sy <= maxY;
+          if (inRect) {
+            unitSystem.setUnitSelected(u, true);
+            selectedCount++;
+          }
         }
-      } else {
-        const groundPt = pickGround(endX, endY);
-        if (groundPt && unitSystem.getSelectedAliveUnits().length > 0) {
-          unitSystem.commandSelectedMoveTo(groundPt, null);
-          soundManager?.playSfx?.(soundManager?.sfx?.move);
-        }
+        soundManager?.playSfx?.(soundManager?.sfx?.select);
+        ui.setStatusMessage(
+          selectedCount > 0
+            ? `Multi-selected ${selectedCount} unit${selectedCount === 1 ? "" : "s"}.`
+            : "No units in multi-select box."
+        );
       }
-    } else if (dragStart) {
-      const minX = Math.min(dragStart.x, endX);
-      const maxX = Math.max(dragStart.x, endX);
-      const minY = Math.min(dragStart.y, endY);
-      const maxY = Math.max(dragStart.y, endY);
 
-      const rect = canvas.getBoundingClientRect();
-      const width = engine.getRenderWidth();
-      const height = engine.getRenderHeight();
-      const scaleX = width > 0 && rect.width > 0 ? rect.width / width : 1;
-      const scaleY = height > 0 && rect.height > 0 ? rect.height / height : 1;
-      const transformMatrix = scene.getTransformMatrix();
-
-      for (const u of unitSystem.units || []) {
-        if (u.hp <= 0) continue;
-        const proj = BABYLON.Vector3.Project(u.pos, BABYLON.Matrix.Identity(), transformMatrix, {
-          x: 0,
-          y: 0,
-          width,
-          height
-        });
-        const sx = rect.left + proj.x * scaleX;
-        const sy = rect.top + proj.y * scaleY;
-        const shouldSelect = u.team === state.activeTeam && sx >= minX && sx <= maxX && sy >= minY && sy <= maxY;
-        if (u.selected !== shouldSelect) {
-          u.selected = shouldSelect;
-          u.selRing?.setEnabled?.(shouldSelect);
-        }
-      }
+      dragStart = null;
+      dragCurrent = null;
     }
-
-    dragStart = null;
-    dragCurrent = null;
   });
 
   let lastTime = performance.now();
@@ -698,5 +705,5 @@ export function bootstrapGame() {
   });
 
   terrainSystem.buildTerrainFromMap(ui.getSelectedMapPath());
-  ui.setStatusMessage("Ready. Select Deploy or Move / Select to command forces.");
+  ui.setStatusMessage("Right-click a unit to select, click empty space to deselect, Shift+Right-Click for multi-select, left-click map to move.");
 }
