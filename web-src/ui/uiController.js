@@ -13,23 +13,32 @@ export function createUiController({
   onSelectMap,
   onClearAll
 }) {
-  const mapSelect = document.getElementById("mapSelect");
-  const topBar = document.querySelector(".hud-top-bar") || mapSelect?.closest("div") || document.body;
-  let unitRosterBar = document.getElementById("unitRosterBar");
-  let editorToolBar = document.getElementById("editorToolBar");
-  const modeSandboxBtn = document.getElementById("modeSandboxBtn");
-  const modePracticeBtn = document.getElementById("modePracticeBtn");
-  const modeEditorBtn = document.getElementById("modeEditorBtn");
-  const team1Btn = document.getElementById("team1Btn");
-  const team2Btn = document.getElementById("team2Btn");
-  const actionDeployBtn = document.getElementById("actionDeployBtn");
-  const actionOrderBtn = document.getElementById("actionOrderBtn");
-  const speedBtn = document.getElementById("speedBtn");
-  const musicBtn = document.getElementById("musicBtn");
-  const clearBtn = document.getElementById("clearBtn");
-  const terrainHint = document.getElementById("terrainHint");
-  const redCountEl = document.getElementById("redCount");
-  const blueCountEl = document.getElementById("blueCount");
+  const resolveElement = (ids) => {
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el) return el;
+    }
+    return null;
+  };
+
+  const mapSelect = resolveElement(["mapSelect"]);
+  const topBar = document.querySelector(".panel, .hud-top-bar") || mapSelect?.closest("div") || document.body;
+  let unitRosterBar = resolveElement(["unitRosterBar"]);
+  let editorToolBar = resolveElement(["editorToolBar"]);
+
+  const modeSandboxBtn = resolveElement(["modeSandboxBtn"]);
+  const modePracticeBtn = resolveElement(["modePracticeBtn"]);
+  const modeEditorBtn = resolveElement(["modeEditorBtn"]);
+  const team1Btn = resolveElement(["teamRed", "team1Btn"]);
+  const team2Btn = resolveElement(["teamBlue", "team2Btn"]);
+  const actionDeployBtn = resolveElement(["actionDeploy", "actionDeployBtn"]);
+  const actionOrderBtn = resolveElement(["actionOrder", "actionOrderBtn"]);
+  const speedBtn = resolveElement(["speedToggle", "speedBtn"]);
+  const musicBtn = resolveElement(["musicToggle", "musicBtn"]);
+  const clearBtn = resolveElement(["clearAll", "clearBtn"]);
+  const terrainHint = resolveElement(["terrainHint"]);
+  const redCountEl = resolveElement(["redCount"]);
+  const blueCountEl = resolveElement(["blueCount"]);
 
   let selectedUnit = UNITS[0];
   let selectedSizeOption = UNIT_SIZE_OPTIONS[0];
@@ -217,6 +226,7 @@ export function createUiController({
     for (const { btn, mode } of modeButtons) {
       if (!btn) continue;
       const isSelected = currentMode === mode;
+      btn.classList.toggle("active", isSelected);
       btn.classList.toggle("ring-2", isSelected);
       btn.classList.toggle("ring-amber-400", isSelected);
       btn.classList.toggle("bg-amber-600", isSelected);
@@ -244,6 +254,7 @@ export function createUiController({
     activeTeam = team;
     if (team1Btn) {
       const isRed = team === 1;
+      team1Btn.classList.toggle("active", isRed);
       team1Btn.classList.toggle("ring-2", isRed);
       team1Btn.classList.toggle("ring-red-300", isRed);
       team1Btn.style.outline = isRed ? "2px solid #fecaca" : "none";
@@ -251,6 +262,7 @@ export function createUiController({
     }
     if (team2Btn) {
       const isBlue = team === 2;
+      team2Btn.classList.toggle("active", isBlue);
       team2Btn.classList.toggle("ring-2", isBlue);
       team2Btn.classList.toggle("ring-blue-300", isBlue);
       team2Btn.style.backgroundColor = isBlue ? "#2563eb" : "";
@@ -266,6 +278,7 @@ export function createUiController({
     pointerAction = action;
     if (actionDeployBtn) {
       const isDeploy = action === "deploy";
+      actionDeployBtn.classList.toggle("active", isDeploy);
       actionDeployBtn.classList.toggle("ring-2", isDeploy);
       actionDeployBtn.classList.toggle("ring-amber-400", isDeploy);
       actionDeployBtn.style.backgroundColor = isDeploy ? "#dc2626" : "";
@@ -274,6 +287,7 @@ export function createUiController({
     }
     if (actionOrderBtn) {
       const isOrder = action === "order";
+      actionOrderBtn.classList.toggle("active", isOrder);
       actionOrderBtn.classList.toggle("ring-2", isOrder);
       actionOrderBtn.classList.toggle("ring-amber-400", isOrder);
       actionOrderBtn.style.backgroundColor = isOrder ? "#d97706" : "";
