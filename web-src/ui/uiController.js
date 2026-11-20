@@ -38,40 +38,16 @@ export function createUiController({
   let pointerAction = "deploy";
   let musicOn = false;
 
-  const fireOncePerGesture = (el, handler) => {
-    if (!el) return () => {};
-    let lastFireTime = 0;
-    const run = (e) => {
-      const now = performance.now();
-      if (now - lastFireTime < 120) return;
-      lastFireTime = now;
-      if (e) {
-        e.stopPropagation();
-      }
-      handler(e);
-    };
-
+  const prepButton = (el) => {
+    if (!el) return;
+    el.disabled = false;
     el.style.pointerEvents = "auto";
     el.style.cursor = "pointer";
-    el.style.position = el.style.position || "relative";
+    el.style.userSelect = "none";
+    if (!el.style.position) {
+      el.style.position = "relative";
+    }
     el.style.zIndex = "50";
-
-    el.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-      run(e);
-    }, { capture: true });
-
-    el.addEventListener("mousedown", (e) => {
-      e.stopPropagation();
-      run(e);
-    }, { capture: true });
-
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      run(e);
-    });
-
-    return run;
   };
 
   if (!unitRosterBar && topBar) {
@@ -97,10 +73,10 @@ export function createUiController({
   }
 
   if (mapSelect) {
+    mapSelect.disabled = false;
     mapSelect.style.pointerEvents = "auto";
     mapSelect.style.position = "relative";
     mapSelect.style.zIndex = "50";
-    mapSelect.addEventListener("pointerdown", (e) => e.stopPropagation(), { capture: true });
     mapSelect.innerHTML = "";
     MAPS.forEach((m) => {
       const opt = document.createElement("option");
@@ -129,7 +105,6 @@ export function createUiController({
   sizeSelect.id = "unitSizeSelect";
   sizeSelect.style.cssText =
     "background:#1e293b;color:#f8fafc;font-size:12px;font-weight:500;padding:4px 8px;border-radius:6px;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:50;";
-  sizeSelect.addEventListener("pointerdown", (e) => e.stopPropagation(), { capture: true });
   UNIT_SIZE_OPTIONS.forEach((optDef) => {
     const opt = document.createElement("option");
     opt.value = String(optDef.soldiers);
@@ -152,7 +127,7 @@ export function createUiController({
     };
     syncDeploySubBar();
     onSelectUnitSize?.(count);
-    soundManager.playSfx(soundManager.sfx.select);
+    soundManager?.playSfx?.(soundManager?.sfx?.select);
   });
 
   deploySubBar.appendChild(unitBadge);
@@ -175,7 +150,7 @@ export function createUiController({
         "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:50;";
       btn.innerHTML = `<img src="${u.icon}" alt="${u.label}" style="width:16px;height:16px;object-fit:contain;pointer-events:none;" onerror="this.style.display='none'" /><span style="pointer-events:none;">${u.label}</span>`;
 
-      fireOncePerGesture(btn, () => {
+      btn.addEventListener("click", () => {
         if (activeUnitBtn) {
           activeUnitBtn.style.background = "#1e293b";
           activeUnitBtn.style.borderColor = "#475569";
@@ -187,8 +162,8 @@ export function createUiController({
         btn.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.75)";
         selectedUnit = u;
         syncDeploySubBar();
-        onSelectUnitDef(u);
-        soundManager.playSfx(soundManager.sfx.select);
+        onSelectUnitDef?.(u);
+        soundManager?.playSfx?.(soundManager?.sfx?.select);
       });
 
       if (idx === 0) {
@@ -210,7 +185,7 @@ export function createUiController({
       btn.style.cssText =
         "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:50;";
       btn.innerHTML = `<img src="${t.icon}" alt="${t.label}" style="width:16px;height:16px;object-fit:contain;pointer-events:none;" onerror="this.style.display='none'" /><span style="pointer-events:none;">${t.label}</span>`;
-      fireOncePerGesture(btn, () => {
+      btn.addEventListener("click", () => {
         if (activeToolBtn) {
           activeToolBtn.style.background = "#1e293b";
           activeToolBtn.style.borderColor = "#475569";
@@ -220,8 +195,8 @@ export function createUiController({
         btn.style.background = "#334155";
         btn.style.borderColor = "#fbbf24";
         btn.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.75)";
-        onSelectEditorTool(t);
-        soundManager.playSfx(soundManager.sfx.select);
+        onSelectEditorTool?.(t);
+        soundManager?.playSfx?.(soundManager?.sfx?.select);
       });
       if (idx === 1) {
         activeToolBtn = btn;
@@ -333,46 +308,24 @@ export function createUiController({
     soundManager?.playSfx?.(soundManager?.sfx?.select);
   };
 
-  fireOncePerGesture(modeSandboxBtn, () => handleModeChange("sandbox"));
-  fireOncePerGesture(modePracticeBtn, () => handleModeChange("practice"));
-  fireOncePerGesture(modeEditorBtn, () => handleModeChange("editor"));
-  fireOncePerGesture(team1Btn, () => handleTeamChange(1));
-  fireOncePerGesture(team2Btn, () => handleTeamChange(2));
-  fireOncePerGesture(actionDeployBtn, () => handleActionChange("deploy"));
-  fireOncePerGesture(actionOrderBtn, () => handleActionChange("order"));
-  fireOncePerGesture(speedBtn, handleSpeedToggle);
-  fireOncePerGesture(musicBtn, handleMusicToggle);
-  fireOncePerGesture(clearBtn, handleClear);
+  const topControlActions = new Map([
+    [modeSandboxBtn, () => handleModeChange("sandbox")],
+    [modePracticeBtn, () => handleModeChange("practice")],
+    [modeEditorBtn, () => handleModeChange("editor")],
+    [team1Btn, () => handleTeamChange(1)],
+    [team2Btn, () => handleTeamChange(2)],
+    [actionDeployBtn, () => handleActionChange("deploy")],
+    [actionOrderBtn, () => handleActionChange("order")],
+    [speedBtn, handleSpeedToggle],
+    [musicBtn, handleMusicToggle],
+    [clearBtn, handleClear]
+  ]);
 
-  // Document-level delegation fallback in case any overlay or listener intercepts direct events
-  document.addEventListener("pointerdown", (e) => {
-    const targetEl = e.target instanceof Element ? e.target.closest("button") : null;
-    if (!targetEl) return;
-    e.stopPropagation();
-
-    if (targetEl === modeSandboxBtn) handleModeChange("sandbox");
-    else if (targetEl === modePracticeBtn) handleModeChange("practice");
-    else if (targetEl === modeEditorBtn) handleModeChange("editor");
-    else if (targetEl === team1Btn) handleTeamChange(1);
-    else if (targetEl === team2Btn) handleTeamChange(2);
-    else if (targetEl === actionDeployBtn) handleActionChange("deploy");
-    else if (targetEl === actionOrderBtn) handleActionChange("order");
-    else if (targetEl === speedBtn) handleSpeedToggle();
-    else if (targetEl === musicBtn) handleMusicToggle();
-    else if (targetEl === clearBtn) handleClear();
-    else if (targetEl.dataset?.order) {
-      document.querySelectorAll("[data-order]").forEach((b) => {
-        b.classList.remove("ring-2", "ring-amber-400", "bg-amber-600", "text-white");
-        b.style.outline = "none";
-        b.style.boxShadow = "none";
-      });
-      targetEl.classList.add("ring-2", "ring-amber-400", "bg-amber-600", "text-white");
-      targetEl.style.outline = "2px solid #fbbf24";
-      targetEl.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.8)";
-      onIssueOrder?.(targetEl.dataset.order);
-      soundManager?.playSfx?.(soundManager?.sfx?.select);
-    }
-  }, { capture: true });
+  for (const [btn, fn] of topControlActions.entries()) {
+    if (!btn) continue;
+    prepButton(btn);
+    btn.addEventListener("click", fn);
+  }
 
   mapSelect?.addEventListener("change", () => {
     onSelectMap?.(mapSelect.value);
@@ -381,7 +334,8 @@ export function createUiController({
 
   const orderButtons = document.querySelectorAll("[data-order]");
   orderButtons.forEach((btn) => {
-    fireOncePerGesture(btn, () => {
+    prepButton(btn);
+    btn.addEventListener("click", () => {
       orderButtons.forEach((b) => {
         b.classList.remove("ring-2", "ring-amber-400", "bg-amber-600", "text-white");
         b.style.outline = "none";
