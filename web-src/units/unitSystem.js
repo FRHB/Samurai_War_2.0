@@ -12,11 +12,11 @@ const FORMATION_COLUMNS_BY_SIZE = Object.freeze({
 
 export function createUnitSystem({
   scene,
-  createSpritePlane,
-  setSpriteCell,
+  soundManager,
   getGroundHeightAt,
   getTerrainInfoAt,
-  soundManager
+  createSpritePlane,
+  setSpriteCell
 }) {
   const units = [];
   const combatEffects = [];
@@ -148,7 +148,7 @@ export function createUnitSystem({
     return 25;
   };
 
-  // 1 unit = 1 soldier entity; deploying a formation spawns N soldier entities in uniform ranks & columns
+  // 1 unit = 1 soldier entity; deploying a formation spawns N soldier entities with uniform soldier size
   const createFormationEntities = (root, unitDef, team, soldierCount) => {
     const count = Math.max(1, Number(soldierCount) || 10);
     const perSoldierHp = unitDef.hp ?? 50;
@@ -156,12 +156,12 @@ export function createUnitSystem({
     const perSoldierArmor = unitDef.armor ?? 4;
     const perSoldierMorale = unitDef.morale ?? 70;
 
-    const spec = getUnitBillboardSpec(unitDef.id, count);
+    const spec = getUnitBillboardSpec(unitDef.id);
     const aliveTex = billboardAtlas.getUnitBillboardTexture(unitDef.id, team, "alive");
 
     const cols = resolveUniformColumns(count);
     const rows = Math.ceil(count / cols);
-    const spacing = Number(Math.max(spec.width * 0.74, count > 100 ? 0.38 : count > 25 ? 0.44 : 0.54).toFixed(3));
+    const spacing = Number(Math.max(spec.width * 0.92, 0.72).toFixed(3));
     const baseY = spec.yOffset;
 
     const entities = [];
@@ -278,17 +278,24 @@ export function createUnitSystem({
     unit.selRing.setEnabled(unit.selected);
   };
 
-  const applyOrderToSelected = (orderType) => {
-    for (const u of getSelectedAliveUnits()) {
-      if (orderType === "halt") { u.order = "halt"; u.hold = true; u.targetPos = null; }
-      else if (orderType === "walk") { u.order = "walk"; u.hold = false; }
-      else if (orderType === "run") { u.order = "run"; u.hold = false; }
-      else if (orderType === "hold") { u.hold = !u.hold; if (u.hold) u.targetPos = null; }
-      else if (orderType === "fire") { u.fire = !u.fire; }
+  const issueOrderToSelected = (order) => {
+    const selected = getSelectedAliveUnits();
+    for (const u of selected) {
+      if (order === "halt") {
+        u.order = "halt";
+        u.targetPos = null;
+      } else if (order === "hold") {
+        u.hold = !u.hold;
+      } else if (order === "fire") {
+        u.fire = !u.fire;
+      } else if (order === "walk" || order === "run") {
+        u.order = order;
+        u.hold = false;
+      }
     }
   };
 
-  const issueMoveOrderToSelected = (destPoint, activeOrder, aimAngle = null) => {
+  const commandSelectedMoveTo = (centerPt, aimAngle = null) => {
     const selectedList = getSelectedAliveUnits();
     if (!selectedList.length) return;
     const cols = Math.ceil(Math.sqrt(selectedList.length));
@@ -296,21 +303,33 @@ export function createUnitSystem({
     const rowsCount = Math.ceil(selectedList.length / cols);
 
     selectedList.forEach((u, i) => {
-      const row = Math.floor(i / cols);
-      const col = i % cols;
-      const ox = (col - (cols - 1) / 2) * spacing;
-      const oz = (row - (rowsCount - 1) / 2) * spacing;
-      u.targetPos = new BABYLON.Vector3(destPoint.x + ox, 0, destPoint.z + oz);
-      if (aimAngle !== null) u.yaw = aimAngle;
+      const r = Math.floor(i / cols);
+      const c = i % cols;
+      const ox = (c - (cols - 1) / 2) * spacing;
+      const oz = (r - (rowsCount - 1) / 2) * spacing;
+      u.targetPos = new BABYLON.Vector3(centerPt.x + ox, u.pos.y, centerPt.z + oz);
       u.hold = false;
-      if (u.order === "halt") u.order = activeOrder === "run" ? "run" : "walk";
+      if (u.order === "halt") u.order = "walk";
+      if (aimAngle !== null) u.yaw = aimAngle;
     });
   };
 
+  const getAliveCount = (team) => {
+    let total = 0;
+    for (const u of units) {
+      if (u.team !== team || u.hp <= 0) continue;
+      const aliveSoldiers = u.entities ? u.entities.filter((e) => e.alive).length : 0;
+      total += aliveSoldiers > 0 ? aliveSoldiers : Math.max(1, Math.ceil((u.hp / u.maxHp) * (u.soldierCount || 1)));
+    }
+    return total;
+  };
+
   const getMatchupMultiplier = (attacker, defender) => {
-    if (attacker.def.role === "antiCav" && defender.def.role === "cavalry") return 1.45;
-    if (attacker.def.role === "cavalry" && defender.def.role === "ranged") return 1.35;
-    if (attacker.def.role === "shock" && defender.def.role === "line") return 1.2;
+    const aRole = attacker.def.role;
+    const dRole = defender.def.role;
+    if (aRole === "antiCav" && dRole === "cavalry") return 1.45;
+    if (aRole === "cavalry" && dRole === "ranged") return 1.35;
+    if (aRole === "shock" && dRole === "line") return 1.25;
     return 1.0;
   };
 
@@ -569,8 +588,9 @@ export function createUnitSystem({
     spawnUnit,
     getSelectedAliveUnits,
     toggleUnitSelection,
-    applyOrderToSelected,
-    issueMoveOrderToSelected,
+    issueOrderToSelected,
+    commandSelectedMoveTo,
+    getAliveCount,
     updateSimulation,
     clearAllUnits
   };
