@@ -1,219 +1,273 @@
-import * as BABYLON from "@babylonjs/core";
-import { EDITOR_TOOLS, UNITS, UNIT_SIZE_OPTIONS } from "./config/gameData.js";
-import { createSoundManager } from "./audio/audioManager.js";
+import * as BABYLON from "babylonjs";
+import { MAPS, UNITS, DEFAULT_ORDER, SIM_SPEEDS } from "./config/gameData.js";
 import { createBabylonWorld } from "./scene/babylonWorld.js";
 import { createTerrainSystem } from "./terrain/terrainSystem.js";
 import { createUnitSystem } from "./units/unitSystem.js";
-import { createUiController } from "./ui/uiController.js";
+import { UIController } from "./ui/uiController.js";
+import { createAudioManager } from "./audio/audioManager.js";
 
-window.addEventListener("DOMContentLoaded", () => {
-  const canvas = document.getElementById("renderCanvas");
-  const soundManager = createSoundManager();
-  const world = createBabylonWorld(canvas);
+const canvas = document.getElementById("renderCanvas");
+const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
 
-  const state = {
-    currentMode: "sandbox",
-    activeTeam: 1, // 1 = Red, 2 = Blue
-    pointerAction: "deploy", // "deploy" | "order"
-    activeOrder: "walk", // "halt" | "walk" | "run" | "hold" | "fire"
-    simSpeed: 1,
-    selectedUnitDef: UNITS[0],
-    selectedUnitSize: UNIT_SIZE_OPTIONS[0].soldiers,
-    selectedEditorTool: EDITOR_TOOLS[1]
-  };
+const world = createBabylonWorld(canvas, engine);
+const { scene, camera, shadowGenerator, groundMaterial, getGroundPointAtPointer, setCameraTargetBounds } = world;
 
-  let ui = null;
+const audioManager = createAudioManager();
+const terrainSystem = createTerrainSystem(scene, shadowGenerator, groundMaterial);
+const unitSystem = createUnitSystem(scene, shadowGenerator, terrainSystem);
 
-  const terrainSystem = createTerrainSystem({
-    scene: world.scene,
-    groundMat: world.groundMat,
-    createSpritePlane: world.createSpritePlane,
-    onTerrainChanged: () => {
-      for (const u of unitSystem.units) {
-        u.pos.y = terrainSystem.getGroundHeightAt(u.pos.x, u.pos.z);
-        u.root.position.copyFrom(u.pos);
-      }
-    }
-  });
+let currentMode = "sandbox";
+let activeTeam = 1;
+let pointerAction = "deploy";
+let selectedUnitDef = UNITS[0];
+let formationSize = 1;
+let currentOrder = DEFAULT_ORDER;
+let speedIndex = 0;
+let musicEnabled = false;
+let isDragging = false;
+let dragStart = null;
+let dragCurrent = null;
+let pointerDownPos = null;
+let activeEditorToolId = "paint";
 
-  const unitSystem = createUnitSystem({
-    scene: world.scene,
-    createSpritePlane: world.createSpritePlane,
-    setSpriteCell: world.setSpriteCell,
-    getGroundHeightAt: terrainSystem.getGroundHeightAt,
-    getTerrainInfoAt: terrainSystem.getTerrainInfoAt,
-    soundManager
-  });
+const selectionBox = document.createElement("div");
+selectionBox.style.cssText =
+  "position:fixed;border:1.5px dashed #fbbf24;background:rgba(251,191,36,0.14);pointer-events:none;display:none;z-index:25;";
+document.body.appendChild(selectionBox);
 
-  ui = createUiController({
-    soundManager,
-    onSelectUnitDef: (unitDef) => {
-      state.selectedUnitDef = unitDef;
-      state.pointerAction = "deploy";
-      ui.syncActionButtons(state.pointerAction);
-    },
-    onSelectUnitSize: (soldierCount) => {
-      state.selectedUnitSize = Number(soldierCount) || 10;
-      state.pointerAction = "deploy";
-      ui.syncActionButtons(state.pointerAction);
-    },
-    onSelectEditorTool: (tool) => {
-      state.selectedEditorTool = tool;
-    },
-    onSelectTeam: (team) => {
-      state.activeTeam = team;
-    },
-    onSelectPointerAction: (action) => {
-      state.pointerAction = action;
-      ui.syncActionButtons(state.pointerAction);
-    },
-    onToggleSimSpeed: () => {
-      state.simSpeed = state.simSpeed === 1 ? 2 : 1;
-      return state.simSpeed;
-    },
-    onIssueOrder: (order) => {
-      state.activeOrder = order;
-      unitSystem.applyOrderToSelected(order);
-    },
-    onSelectMode: (mode) => {
-      state.currentMode = mode;
-      if (mode === "practice") {
-        terrainSystem.buildTerrainFromMap("assets/Maps/Practice.png");
-      }
-    },
-    onSelectMap: (mapPath) => {
-      terrainSystem.buildTerrainFromMap(mapPath);
-    },
-    onClearAll: () => {
-      unitSystem.clearAllUnits();
-      terrainSystem.clearTerrainZones();
-      world.hideOrderArrow();
-    }
-  });
-
-  // Pointer & camera/order input coordination
-  let pointerDownPos = null;
-  let dragStartWorld = null;
-  let isDraggingOrder = false;
-
-  world.scene.onPointerObservable.add((pointerInfo) => {
-    const pick = world.scene.pick(
-      world.scene.pointerX,
-      world.scene.pointerY,
-      (m) => m === world.ground || m === world.backdrop
-    );
-
-    if (pick && pick.hit && pick.pickedPoint) {
-      world.cursorRing.setEnabled(true);
-      world.cursorRing.position.set(
-        pick.pickedPoint.x,
-        terrainSystem.getGroundHeightAt(pick.pickedPoint.x, pick.pickedPoint.z) + 0.08,
-        pick.pickedPoint.z
-      );
-      ui.updateTerrainHint(terrainSystem.getTerrainInfoAt(pick.pickedPoint.x, pick.pickedPoint.z).label);
+const ui = new UIController({
+  unitTypes: UNITS,
+  onMapChange: async (mapPath) => {
+    await loadMapByPath(mapPath);
+  },
+  onModeChange: (mode) => {
+    currentMode = mode;
+    terrainSystem.setEditorMode(mode === "editor");
+    if (mode === "practice") {
+      unitSystem.spawnPracticeTarget(2);
+      ui.setStatusMessage("Practice mode: target dummy squad spawned.");
+    } else if (mode === "editor") {
+      ui.setStatusMessage("Map Editor active: click or drag on the map to paint terrain.");
     } else {
-      world.cursorRing.setEnabled(false);
+      ui.setStatusMessage("Sandbox mode active.");
     }
-
-    if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
-      pointerDownPos = { x: world.scene.pointerX, y: world.scene.pointerY };
-      const selectedList = unitSystem.getSelectedAliveUnits();
-      if (state.currentMode !== "editor" && state.pointerAction === "order" && selectedList.length && pick?.hit) {
-        dragStartWorld = pick.pickedPoint.clone();
-        isDraggingOrder = false;
-      }
+  },
+  onTeamChange: (team) => {
+    activeTeam = team === 1 || team === "red" ? 1 : 2;
+    ui.setStatusMessage(`Active team: ${activeTeam === 1 ? "Team 1 (Red)" : "Team 2 (Blue)"}`);
+  },
+  onToolChange: (tool) => {
+    pointerAction = tool === "select" || tool === "order" ? "order" : "deploy";
+    ui.setStatusMessage(
+      pointerAction === "deploy"
+        ? `Deploy tool active (${selectedUnitDef.label} x${formationSize}). Click map to deploy.`
+        : "Move / Select tool active: click/drag to select units, or click/right-click to issue orders."
+    );
+  },
+  onUnitTypeChange: (unitId) => {
+    const found = UNITS.find((u) => u.id === unitId || u.kind === unitId);
+    if (found) {
+      selectedUnitDef = found;
+      pointerAction = "deploy";
+      ui.setActiveTool("deploy");
+      ui.setStatusMessage(`Selected ${selectedUnitDef.label} (Formation: ${formationSize}).`);
     }
-
-    if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE && pointerDownPos && dragStartWorld && pick?.hit) {
-      if (Math.hypot(world.scene.pointerX - pointerDownPos.x, world.scene.pointerY - pointerDownPos.y) > 8) {
-        isDraggingOrder = true;
-        world.camera.detachControl();
-        world.updateOrderArrow(dragStartWorld, pick.pickedPoint);
-      }
-    }
-
-    if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERUP && pointerDownPos) {
-      world.camera.attachControl(canvas, true);
-      const dx = world.scene.pointerX - pointerDownPos.x;
-      const dy = world.scene.pointerY - pointerDownPos.y;
-      const movedDist = Math.hypot(dx, dy);
-      pointerDownPos = null;
-
-      if (isDraggingOrder && dragStartWorld && pick?.hit) {
-        const aimAngle = Math.atan2(pick.pickedPoint.x - dragStartWorld.x, pick.pickedPoint.z - dragStartWorld.z);
-        unitSystem.issueMoveOrderToSelected(pick.pickedPoint, state.activeOrder, aimAngle);
-        soundManager.playSfx(soundManager.sfx.move);
-        dragStartWorld = null;
-        isDraggingOrder = false;
-        world.hideOrderArrow();
-        return;
-      }
-
-      dragStartWorld = null;
-      isDraggingOrder = false;
-      world.hideOrderArrow();
-      if (movedDist >= 6) return;
-
-      if (state.currentMode === "editor") {
-        if (state.selectedEditorTool.id === "hand") return;
-        if (state.selectedEditorTool.id === "erase") {
-          const objPick = world.scene.pick(
-            world.scene.pointerX,
-            world.scene.pointerY,
-            (m) => terrainSystem.terrainZones.some((z) => z.mesh === m)
-          );
-          if (objPick?.hit && objPick.pickedMesh && terrainSystem.eraseTerrainFeatureAtMesh(objPick.pickedMesh)) {
-            soundManager.playSfx(soundManager.sfx.select);
-          }
-          return;
-        }
-        if (pick?.hit && pick.pickedPoint) {
-          terrainSystem.spawnTerrainFeature(pick.pickedPoint, state.selectedEditorTool);
-          soundManager.playSfx(soundManager.sfx.place);
-        }
-        return;
-      }
-
-      if (state.pointerAction === "deploy") {
-        if (pick?.hit && pick.pickedPoint) {
-          unitSystem.spawnUnit(
-            pick.pickedPoint,
-            state.selectedUnitDef,
-            state.activeTeam,
-            state.activeOrder,
-            state.selectedUnitSize
-          );
-        }
-      } else {
-        const unitPick = world.scene.pick(
-          world.scene.pointerX,
-          world.scene.pointerY,
-          (m) => Boolean(m.metadata?.unit)
-        );
-        if (unitPick?.hit && unitPick.pickedMesh?.metadata?.unit) {
-          unitSystem.toggleUnitSelection(unitPick.pickedMesh.metadata.unit);
-          soundManager.playSfx(soundManager.sfx.select);
-          return;
-        }
-
-        if (unitSystem.getSelectedAliveUnits().length && pick?.hit && pick.pickedPoint) {
-          unitSystem.issueMoveOrderToSelected(pick.pickedPoint, state.activeOrder);
-          soundManager.playSfx(soundManager.sfx.move);
-        }
-      }
-    }
-  });
-
-  // Main simulation & render loop
-  world.scene.onBeforeRenderObservable.add(() => {
-    const rawDt = Math.min(world.engine.getDeltaTime() / 1000, 0.05);
-    const dt = rawDt * state.simSpeed;
-    if (dt <= 0) return;
-
-    const { redCount, blueCount } = unitSystem.updateSimulation(rawDt, dt);
-    ui.updateAliveCounts(redCount, blueCount);
-  });
-
-  world.engine.runRenderLoop(() => world.scene.render());
-  terrainSystem.buildTerrainFromMap(ui.getSelectedMapPath());
+  },
+  onFormationSizeChange: (count) => {
+    formationSize = Math.max(1, Number(count) || 1);
+    ui.setStatusMessage(`Formation size set to ${formationSize}.`);
+  },
+  onEditorToolChange: (tool) => {
+    activeEditorToolId = tool?.id || "paint";
+    ui.setStatusMessage(`Editor tool: ${tool?.label || activeEditorToolId}`);
+  },
+  onOrderChange: (order) => {
+    currentOrder = order;
+    unitSystem.issueOrderToSelected(order);
+    ui.setStatusMessage(`Order issued: ${order.toUpperCase()}`);
+  },
+  onSpeedToggle: () => {
+    speedIndex = (speedIndex + 1) % SIM_SPEEDS.length;
+    const nextSpeed = SIM_SPEEDS[speedIndex];
+    ui.setSpeedLabel(nextSpeed);
+    ui.setStatusMessage(`Simulation speed: ${nextSpeed}x`);
+  },
+  onMusicToggle: () => {
+    musicEnabled = !musicEnabled;
+    audioManager.setMusicEnabled(musicEnabled);
+    ui.setMusicLabel(musicEnabled);
+    ui.setStatusMessage(musicEnabled ? "Battlefield music: On" : "Battlefield music: Off");
+  },
+  onClearUnits: () => {
+    unitSystem.clearAllUnits();
+    ui.setStatusMessage("Cleared all units from the battlefield.");
+  }
 });
+
+async function loadMapByPath(mapPath) {
+  const mapDef = MAPS.find((m) => m.path === mapPath) || MAPS[0];
+  unitSystem.clearAllUnits();
+  const bounds = await terrainSystem.loadMap(mapDef);
+  if (bounds && setCameraTargetBounds) {
+    setCameraTargetBounds(bounds);
+  }
+  ui.setStatusMessage(`Loaded map: ${mapDef.label}`);
+}
+
+function updateSelectionBoxVisual() {
+  if (!isDragging || !dragStart || !dragCurrent) {
+    selectionBox.style.display = "none";
+    return;
+  }
+  const left = Math.min(dragStart.x, dragCurrent.x);
+  const top = Math.min(dragStart.y, dragCurrent.y);
+  const width = Math.abs(dragCurrent.x - dragStart.x);
+  const height = Math.abs(dragCurrent.y - dragStart.y);
+  selectionBox.style.display = "block";
+  selectionBox.style.left = `${left}px`;
+  selectionBox.style.top = `${top}px`;
+  selectionBox.style.width = `${width}px`;
+  selectionBox.style.height = `${height}px`;
+}
+
+canvas.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+});
+
+canvas.addEventListener("pointerdown", (e) => {
+  if (e.button === 2) {
+    const pt = getGroundPointAtPointer(e.clientX, e.clientY);
+    if (pt) {
+      unitSystem.commandSelectedMoveOrAttack(pt, currentOrder);
+      ui.setStatusMessage(`Issued ${currentOrder.toUpperCase()} order toward target point.`);
+    }
+    return;
+  }
+
+  if (e.button !== 0) return;
+
+  pointerDownPos = { x: e.clientX, y: e.clientY };
+
+  if (currentMode === "editor") {
+    const pt = getGroundPointAtPointer(e.clientX, e.clientY);
+    if (pt) {
+      terrainSystem.applyEditorBrush(pt, activeEditorToolId);
+      isDragging = true;
+    }
+    return;
+  }
+
+  if (pointerAction === "deploy") {
+    const pt = getGroundPointAtPointer(e.clientX, e.clientY);
+    if (pt) {
+      const spawned = unitSystem.deployFormation({
+        team: activeTeam,
+        unitDef: selectedUnitDef,
+        count: formationSize,
+        center: pt,
+        defaultOrder: currentOrder
+      });
+      ui.setStatusMessage(
+        `Deployed ${spawned}x ${selectedUnitDef.label} for ${activeTeam === 1 ? "Red" : "Blue"}.`
+      );
+    }
+    return;
+  }
+
+  isDragging = true;
+  dragStart = { x: e.clientX, y: e.clientY };
+  dragCurrent = { x: e.clientX, y: e.clientY };
+  updateSelectionBoxVisual();
+});
+
+window.addEventListener("pointermove", (e) => {
+  const pt = getGroundPointAtPointer(e.clientX, e.clientY);
+  if (pt) {
+    const label = terrainSystem.getTerrainLabelAt(pt.x, pt.z);
+    ui.updateHud({
+      redCount: unitSystem.getAliveCount(1),
+      blueCount: unitSystem.getAliveCount(2),
+      terrainLabel: label
+    });
+  }
+
+  if (!isDragging) return;
+
+  if (currentMode === "editor") {
+    if (pt) terrainSystem.applyEditorBrush(pt, activeEditorToolId);
+    return;
+  }
+
+  dragCurrent = { x: e.clientX, y: e.clientY };
+  updateSelectionBoxVisual();
+});
+
+window.addEventListener("pointerup", (e) => {
+  if (!isDragging) return;
+
+  if (currentMode === "editor") {
+    isDragging = false;
+    pointerDownPos = null;
+    return;
+  }
+
+  const endPos = { x: e.clientX, y: e.clientY };
+  const movedDist = dragStart
+    ? Math.hypot(endPos.x - dragStart.x, endPos.y - dragStart.y)
+    : 0;
+
+  isDragging = false;
+  selectionBox.style.display = "none";
+
+  if (movedDist < 6) {
+    const pt = getGroundPointAtPointer(endPos.x, endPos.y);
+    if (pt) {
+      const picked = unitSystem.pickUnitAtPoint(pt);
+      if (picked && picked.team === activeTeam) {
+        unitSystem.selectSingleUnit(picked);
+        ui.setStatusMessage(`Selected ${picked.label} (Team ${picked.team}).`);
+      } else if (unitSystem.hasSelection()) {
+        unitSystem.commandSelectedMoveOrAttack(pt, currentOrder);
+        ui.setStatusMessage(`Ordered selected units to move (${currentOrder.toUpperCase()}).`);
+      } else if (picked) {
+        unitSystem.commandSelectedMoveOrAttack(pt, currentOrder, picked);
+        ui.setStatusMessage(`Ordered attack on ${picked.label}.`);
+      }
+    }
+  } else if (dragStart) {
+    const minX = Math.min(dragStart.x, endPos.x);
+    const maxX = Math.max(dragStart.x, endPos.x);
+    const minY = Math.min(dragStart.y, endPos.y);
+    const maxY = Math.max(dragStart.y, endPos.y);
+    const count = unitSystem.selectUnitsInScreenRect(minX, minY, maxX, maxY, scene, camera);
+    ui.setStatusMessage(`Selected ${count} unit${count === 1 ? "" : "s"}.`);
+  }
+
+  dragStart = null;
+  dragCurrent = null;
+  pointerDownPos = null;
+});
+
+scene.registerBeforeRender(() => {
+  const rawDt = engine.getDeltaTime() / 1000;
+  const dt = Math.min(rawDt, 0.05) * SIM_SPEEDS[speedIndex];
+  unitSystem.update(dt, currentMode);
+  ui.updateHud({
+    redCount: unitSystem.getAliveCount(1),
+    blueCount: unitSystem.getAliveCount(2)
+  });
+});
+
+engine.runRenderLoop(() => {
+  scene.render();
+});
+
+window.addEventListener("resize", () => {
+  engine.resize();
+});
+
+(async () => {
+  const initialMap = ui.getSelectedMapPath() || MAPS[0]?.path;
+  await loadMapByPath(initialMap);
+  ui.setStatusMessage("Ready. Select Deploy or Move / Select to command forces.");
+})();
