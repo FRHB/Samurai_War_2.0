@@ -14,8 +14,9 @@ export function createUiController({
   onClearAll
 }) {
   const mapSelect = document.getElementById("mapSelect");
-  const unitRosterBar = document.getElementById("unitRosterBar");
-  const editorToolBar = document.getElementById("editorToolBar");
+  const topBar = document.querySelector(".hud-top-bar") || mapSelect?.closest("div") || document.body;
+  let unitRosterBar = document.getElementById("unitRosterBar");
+  let editorToolBar = document.getElementById("editorToolBar");
   const modeSandboxBtn = document.getElementById("modeSandboxBtn");
   const modePracticeBtn = document.getElementById("modePracticeBtn");
   const modeEditorBtn = document.getElementById("modeEditorBtn");
@@ -29,6 +30,28 @@ export function createUiController({
   const terrainHint = document.getElementById("terrainHint");
   const redCountEl = document.getElementById("redCount");
   const blueCountEl = document.getElementById("blueCount");
+
+  if (!unitRosterBar && topBar) {
+    unitRosterBar = document.createElement("div");
+    unitRosterBar.id = "unitRosterBar";
+    unitRosterBar.style.cssText =
+      "display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:20;pointer-events:auto;";
+    topBar.insertAdjacentElement("afterend", unitRosterBar);
+  } else if (unitRosterBar) {
+    unitRosterBar.style.cssText =
+      "display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:20;pointer-events:auto;";
+  }
+
+  if (!editorToolBar && topBar) {
+    editorToolBar = document.createElement("div");
+    editorToolBar.id = "editorToolBar";
+    editorToolBar.style.cssText =
+      "display:none;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:20;pointer-events:auto;";
+    (unitRosterBar || topBar).insertAdjacentElement("afterend", editorToolBar);
+  } else if (editorToolBar) {
+    editorToolBar.style.cssText =
+      "flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:20;pointer-events:auto;";
+  }
 
   let selectedUnit = UNITS[0];
   let selectedSizeOption = UNIT_SIZE_OPTIONS[0];
@@ -47,20 +70,22 @@ export function createUiController({
   // Deployment bar directly below the unit roster showing selected unit type + squad size selector
   const deploySubBar = document.createElement("div");
   deploySubBar.id = "deployFormationSubBar";
-  deploySubBar.className = "mt-1.5 flex items-center gap-2.5 bg-slate-900/90 text-slate-100 text-xs px-3 py-1.5 rounded border border-slate-700 w-fit";
+  deploySubBar.style.cssText =
+    "display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;padding:6px 10px;background:rgba(15,23,42,0.92);color:#f8fafc;font-size:12px;border-radius:8px;border:1px solid rgba(148,163,184,0.35);width:fit-content;position:relative;z-index:20;pointer-events:auto;";
 
   const unitBadge = document.createElement("span");
   unitBadge.id = "selectedUnitKindLabel";
-  unitBadge.className = "font-semibold text-amber-300";
+  unitBadge.style.cssText = "font-weight:600;color:#fcd34d;";
 
   const sizeLabel = document.createElement("label");
   sizeLabel.htmlFor = "unitSizeSelect";
-  sizeLabel.className = "text-slate-300 font-medium";
+  sizeLabel.style.cssText = "color:#cbd5e1;font-weight:500;";
   sizeLabel.textContent = "Formation Size:";
 
   const sizeSelect = document.createElement("select");
   sizeSelect.id = "unitSizeSelect";
-  sizeSelect.className = "bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-medium px-2.5 py-1 rounded border border-slate-600 focus:outline-none";
+  sizeSelect.style.cssText =
+    "background:#1e293b;color:#f8fafc;font-size:12px;font-weight:500;padding:4px 8px;border-radius:6px;border:1px solid #475569;cursor:pointer;pointer-events:auto;";
   UNIT_SIZE_OPTIONS.forEach((optDef) => {
     const opt = document.createElement("option");
     opt.value = String(optDef.soldiers);
@@ -90,8 +115,8 @@ export function createUiController({
   deploySubBar.appendChild(sizeLabel);
   deploySubBar.appendChild(sizeSelect);
 
-  if (unitRosterBar?.parentElement) {
-    unitRosterBar.parentElement.insertBefore(deploySubBar, unitRosterBar.nextSibling);
+  if (unitRosterBar) {
+    unitRosterBar.insertAdjacentElement("afterend", deploySubBar);
   } else if (actionDeployBtn?.parentElement) {
     actionDeployBtn.parentElement.insertBefore(sizeSelect, actionDeployBtn);
   }
@@ -102,20 +127,36 @@ export function createUiController({
     UNITS.forEach((u, idx) => {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "unit-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition";
-      btn.innerHTML = `<img src="${u.icon}" alt="${u.label}" class="w-4 h-4 object-contain" onerror="this.style.display='none'" /><span>${u.label}</span>`;
-      btn.addEventListener("click", () => {
-        if (activeUnitBtn) activeUnitBtn.classList.remove("ring-2", "ring-amber-400", "bg-slate-700");
+      btn.style.cssText =
+        "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:21;";
+      btn.innerHTML = `<img src="${u.icon}" alt="${u.label}" style="width:16px;height:16px;object-fit:contain;pointer-events:none;" onerror="this.style.display='none'" /><span style="pointer-events:none;">${u.label}</span>`;
+
+      const selectThisUnit = () => {
+        if (activeUnitBtn) {
+          activeUnitBtn.style.background = "#1e293b";
+          activeUnitBtn.style.borderColor = "#475569";
+          activeUnitBtn.style.boxShadow = "none";
+        }
         activeUnitBtn = btn;
-        btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+        btn.style.background = "#b91c1c";
+        btn.style.borderColor = "#fca5a5";
+        btn.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.75)";
         selectedUnit = u;
         syncDeploySubBar();
         onSelectUnitDef(u);
         soundManager.playSfx(soundManager.sfx.select);
-      });
+      };
+
+      btn.addEventListener("click", selectThisUnit);
+      btn.onpointerdown = (e) => {
+        e.stopPropagation();
+      };
+
       if (idx === 0) {
         activeUnitBtn = btn;
-        btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+        btn.style.background = "#b91c1c";
+        btn.style.borderColor = "#fca5a5";
+        btn.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.75)";
       }
       unitRosterBar.appendChild(btn);
     });
@@ -127,18 +168,27 @@ export function createUiController({
     EDITOR_TOOLS.forEach((t, idx) => {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "editor-tool-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition";
-      btn.innerHTML = `<img src="${t.icon}" alt="${t.label}" class="w-4 h-4 object-contain" onerror="this.style.display='none'" /><span>${t.label}</span>`;
+      btn.style.cssText =
+        "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:21;";
+      btn.innerHTML = `<img src="${t.icon}" alt="${t.label}" style="width:16px;height:16px;object-fit:contain;pointer-events:none;" onerror="this.style.display='none'" /><span style="pointer-events:none;">${t.label}</span>`;
       btn.addEventListener("click", () => {
-        if (activeToolBtn) activeToolBtn.classList.remove("ring-2", "ring-amber-400", "bg-slate-700");
+        if (activeToolBtn) {
+          activeToolBtn.style.background = "#1e293b";
+          activeToolBtn.style.borderColor = "#475569";
+          activeToolBtn.style.boxShadow = "none";
+        }
         activeToolBtn = btn;
-        btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+        btn.style.background = "#334155";
+        btn.style.borderColor = "#fbbf24";
+        btn.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.75)";
         onSelectEditorTool(t);
         soundManager.playSfx(soundManager.sfx.select);
       });
       if (idx === 1) {
         activeToolBtn = btn;
-        btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+        btn.style.background = "#334155";
+        btn.style.borderColor = "#fbbf24";
+        btn.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.75)";
       }
       editorToolBar.appendChild(btn);
     });
@@ -152,9 +202,9 @@ export function createUiController({
     target?.classList.add("ring-2", "ring-amber-400", "bg-amber-600");
 
     const isEditor = mode === "editor";
-    editorToolBar?.classList.toggle("hidden", !isEditor);
-    unitRosterBar?.classList.toggle("hidden", isEditor);
-    deploySubBar?.classList.toggle("hidden", isEditor);
+    if (editorToolBar) editorToolBar.style.display = isEditor ? "flex" : "none";
+    if (unitRosterBar) unitRosterBar.style.display = isEditor ? "none" : "flex";
+    if (deploySubBar) deploySubBar.style.display = isEditor ? "none" : "flex";
   };
 
   setActiveModeButton("sandbox");
