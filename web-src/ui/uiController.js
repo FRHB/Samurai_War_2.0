@@ -24,7 +24,6 @@ export class UIController {
     onMapChange,
     onModeChange,
     onTeamChange,
-    onToolChange,
     onUnitTypeChange,
     onFormationSizeChange,
     onEditorToolChange,
@@ -37,7 +36,6 @@ export class UIController {
     this.onMapChange = onMapChange;
     this.onModeChange = onModeChange;
     this.onTeamChange = onTeamChange;
-    this.onToolChange = onToolChange;
     this.onUnitTypeChange = onUnitTypeChange;
     this.onFormationSizeChange = onFormationSizeChange;
     this.onEditorToolChange = onEditorToolChange;
@@ -67,11 +65,6 @@ export class UIController {
     this.teamButtons = {
       red: document.getElementById("team-red"),
       blue: document.getElementById("team-blue")
-    };
-
-    this.toolButtons = {
-      deploy: document.getElementById("tool-deploy"),
-      select: document.getElementById("tool-select")
     };
 
     this.orderButtons = {
@@ -215,13 +208,6 @@ export class UIController {
       });
     });
 
-    Object.entries(this.toolButtons).forEach(([tool, btn]) => {
-      btn?.addEventListener("click", () => {
-        this.setActiveTool(tool);
-        this.onToolChange?.(tool);
-      });
-    });
-
     this.formationSelect?.addEventListener("change", (e) => {
       this.onFormationSizeChange?.(Number(e.target.value));
     });
@@ -269,13 +255,6 @@ export class UIController {
     const teamKey = team === 1 || team === "red" ? "red" : "blue";
     Object.entries(this.teamButtons).forEach(([key, btn]) => {
       btn?.classList.toggle("active", key === teamKey);
-    });
-  }
-
-  setActiveTool(tool) {
-    const normalized = tool === "order" ? "select" : tool;
-    Object.entries(this.toolButtons).forEach(([key, btn]) => {
-      btn?.classList.toggle("active", key === normalized);
     });
   }
 
@@ -347,6 +326,7 @@ export function bootstrapGame() {
   const world = createBabylonWorld(canvas);
   const {
     scene,
+    camera,
     ground,
     groundMat,
     createSpritePlane,
@@ -361,7 +341,6 @@ export function bootstrapGame() {
   const state = {
     mode: "sandbox",
     activeTeam: 1,
-    pointerAction: "deploy",
     activeOrder: "walk",
     simSpeed: 1,
     selectedUnitDef: UNITS[0],
@@ -371,6 +350,7 @@ export function bootstrapGame() {
 
   let unitSystem = null;
   let ui = null;
+  let lastPointerClientPos = null;
 
   const terrainSystem = createTerrainSystem({
     scene,
@@ -427,31 +407,18 @@ export function bootstrapGame() {
       soundManager?.playSfx?.(soundManager?.sfx?.select);
       ui.setStatusMessage(`Active team: ${state.activeTeam === 1 ? "Team 1 (Red)" : "Team 2 (Blue)"}`);
     },
-    onToolChange: (tool) => {
-      state.pointerAction = tool === "select" || tool === "order" ? "order" : "deploy";
-      soundManager?.playSfx?.(soundManager?.sfx?.select);
-      ui.setStatusMessage(
-        state.pointerAction === "deploy"
-          ? `Deploy active (${state.selectedUnitDef.label} x${state.selectedUnitSize}).`
-          : "Right-click units to select (Shift+Right-Click for multi-select), click empty space to deselect, left-click map to move."
-      );
-    },
     onUnitTypeChange: (unitId) => {
       const found = UNITS.find((u) => u.id === unitId || u.kind === unitId);
       if (found) {
         state.selectedUnitDef = found;
-        state.pointerAction = "deploy";
-        ui.setActiveTool("deploy");
         soundManager?.playSfx?.(soundManager?.sfx?.select);
-        ui.setStatusMessage(`Selected ${found.label} (Formation: ${state.selectedUnitSize}).`);
+        ui.setStatusMessage(`Selected ${found.label} (Formation: ${state.selectedUnitSize}). Press D to deploy.`);
       }
     },
     onFormationSizeChange: (count) => {
       state.selectedUnitSize = Math.max(1, Number(count) || 10);
-      state.pointerAction = "deploy";
-      ui.setActiveTool("deploy");
       soundManager?.playSfx?.(soundManager?.sfx?.select);
-      ui.setStatusMessage(`Formation size set to ${state.selectedUnitSize}.`);
+      ui.setStatusMessage(`Formation size set to ${state.selectedUnitSize}. Press D to deploy.`);
     },
     onEditorToolChange: (tool) => {
       state.selectedEditorTool = tool;
@@ -498,10 +465,73 @@ export function bootstrapGame() {
     return null;
   };
 
+  // Resolve parent formation unit across soldier billboard meshes, selection rings, health bars, and range cones
+  const resolveUnitFromNode = (node) => {
+    let cur = node;
+    while (cur) {
+      if (cur.metadata?.unit) {
+        return cur.metadata.unit;
+      }
+      if (typeof cur.name === "string" && cur.name.startsWith("soldier_node_")) {
+        for (const u of unitSystem.units || []) {
+          if (u.entities?.some((e) => e.node === cur || e.mesh === cur)) {
+            return u;
+          }
+        }
+      }
+      cur = cur.parent;
+    }
+    return null;
+  };
+
   const pickUnitAtClientCoords = (clientX, clientY) => {
     const local = toCanvasLocalCoords(clientX, clientY);
-    const unitPick = scene.pick(local.x, local.y, (mesh) => Boolean(mesh?.metadata?.unit));
-    return unitPick?.hit ? unitPick.pickedMesh?.metadata?.unit : null;
+    const picks = scene.multiPick(local.x, local.y, (mesh) => Boolean(mesh?.isPickable));
+    if (Array.isArray(picks)) {
+      for (const hit of picks) {
+        if (!hit?.hit) continue;
+        const unitFromMesh = resolveUnitFromNode(hit.pickedMesh);
+        if (unitFromMesh && unitFromMesh.hp > 0) {
+          return unitFromMesh;
+        }
+      }
+    }
+
+    const fallbackPick = scene.pick(local.x, local.y, (mesh) => Boolean(mesh?.isPickable));
+    if (fallbackPick?.hit) {
+      const unitFromMesh = resolveUnitFromNode(fallbackPick.pickedMesh);
+      if (unitFromMesh && unitFromMesh.hp > 0) {
+        return unitFromMesh;
+      }
+    }
+
+    // Fallback proximity check against formation centers in screen space so clicking near a formation always selects it
+    const rect = canvas.getBoundingClientRect();
+    const width = engine.getRenderWidth();
+    const height = engine.getRenderHeight();
+    const scaleX = width > 0 && rect.width > 0 ? rect.width / width : 1;
+    const scaleY = height > 0 && rect.height > 0 ? rect.height / height : 1;
+    const transformMatrix = scene.getTransformMatrix();
+
+    let bestUnit = null;
+    let bestDist = 36;
+    for (const u of unitSystem.units || []) {
+      if (u.hp <= 0) continue;
+      const proj = BABYLON.Vector3.Project(u.pos, BABYLON.Matrix.Identity(), transformMatrix, {
+        x: 0,
+        y: 0,
+        width,
+        height
+      });
+      const sx = rect.left + proj.x * scaleX;
+      const sy = rect.top + proj.y * scaleY;
+      const d = Math.hypot(clientX - sx, clientY - sy);
+      if (d <= bestDist) {
+        bestDist = d;
+        bestUnit = u;
+      }
+    }
+    return bestUnit;
   };
 
   let isRightBoxSelecting = false;
@@ -509,6 +539,48 @@ export function bootstrapGame() {
   let dragStart = null;
   let dragCurrent = null;
   let moveAimStart = null;
+  let savedCameraPanSensibility = camera.panningSensibility;
+
+  const setCameraPanningEnabled = (enabled) => {
+    if (!camera) return;
+    if (!enabled) {
+      if (camera.panningSensibility > 0) {
+        savedCameraPanSensibility = camera.panningSensibility;
+      }
+      camera.panningSensibility = 0;
+    } else {
+      camera.panningSensibility = savedCameraPanSensibility > 0 ? savedCameraPanSensibility : 1000;
+    }
+  };
+
+  const deployAtClientCoords = (clientX, clientY) => {
+    const pt = pickGround(clientX, clientY);
+    if (!pt) return false;
+    unitSystem.spawnUnit(
+      pt,
+      state.selectedUnitDef,
+      state.activeTeam,
+      state.activeOrder,
+      state.selectedUnitSize
+    );
+    ui.setStatusMessage(
+      `Deployed ${state.selectedUnitSize}x ${state.selectedUnitDef.label} for ${state.activeTeam === 1 ? "Red" : "Blue"}.`
+    );
+    return true;
+  };
+
+  window.addEventListener("keydown", (e) => {
+    const tag = e.target?.tagName?.toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return;
+    if (e.key === "d" || e.key === "D") {
+      if (state.mode === "editor") return;
+      const pos = lastPointerClientPos || {
+        x: canvas.getBoundingClientRect().left + canvas.getBoundingClientRect().width * 0.5,
+        y: canvas.getBoundingClientRect().top + canvas.getBoundingClientRect().height * 0.5
+      };
+      deployAtClientCoords(pos.x, pos.y);
+    }
+  });
 
   const updateBox = () => {
     if (!isRightBoxSelecting || !dragStart || !dragCurrent) {
@@ -525,11 +597,13 @@ export function bootstrapGame() {
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
   canvas.addEventListener("pointerdown", (e) => {
+    lastPointerClientPos = { x: e.clientX, y: e.clientY };
     const pt = pickGround(e.clientX, e.clientY);
 
-    // Right-click: select unit on a unit, deselect on empty space, or Shift+Right-Click drag for multi-group selection
+    // Right-click: select unit on a unit, deselect on empty space, or Shift+Right-Click drag for multi-group selection (without camera panning)
     if (e.button === 2) {
       if (e.shiftKey) {
+        setCameraPanningEnabled(false);
         isRightBoxSelecting = true;
         dragStart = { x: e.clientX, y: e.clientY };
         dragCurrent = { x: e.clientX, y: e.clientY };
@@ -567,25 +641,15 @@ export function bootstrapGame() {
       return;
     }
 
-    // Left-click: move currently selected unit(s) to clicked map location, or deploy when Deploy tool is active
+    // Left-click: move currently selected unit(s) to clicked map location
     if (unitSystem.getSelectedAliveUnits().length > 0 && pt) {
       moveAimStart = pt.clone();
       updateOrderArrow?.(moveAimStart, pt);
-      return;
-    }
-
-    if (state.pointerAction === "deploy" && pt) {
-      unitSystem.spawnUnit(
-        pt,
-        state.selectedUnitDef,
-        state.activeTeam,
-        state.activeOrder,
-        state.selectedUnitSize
-      );
     }
   });
 
   window.addEventListener("pointermove", (e) => {
+    lastPointerClientPos = { x: e.clientX, y: e.clientY };
     const pt = pickGround(e.clientX, e.clientY);
     if (pt) {
       cursorRing?.setEnabled?.(true);
@@ -613,6 +677,9 @@ export function bootstrapGame() {
     }
 
     if (isRightBoxSelecting) {
+      if (!e.shiftKey) {
+        setCameraPanningEnabled(true);
+      }
       dragCurrent = { x: e.clientX, y: e.clientY };
       updateBox();
     }
@@ -639,6 +706,7 @@ export function bootstrapGame() {
 
     if (isRightBoxSelecting) {
       isRightBoxSelecting = false;
+      setCameraPanningEnabled(true);
       selectionBox.style.display = "none";
 
       if (dragStart) {
@@ -705,5 +773,5 @@ export function bootstrapGame() {
   });
 
   terrainSystem.buildTerrainFromMap(ui.getSelectedMapPath());
-  ui.setStatusMessage("Right-click a unit to select, click empty space to deselect, Shift+Right-Click for multi-select, left-click map to move.");
+  ui.setStatusMessage("Right-click unit to select, click empty space to deselect, Shift+Right-Click for multi-select, D to deploy, left-click map to move.");
 }
