@@ -466,7 +466,7 @@ export function createUnitSystem({
   };
 
   // Reform surviving soldiers into their own formation around their post-battle anchor
-  const reformUnitFormation = (unitObj, anchorX, anchorZ, facingYaw) => {
+  const reformUnitFormation = (unitObj, anchorX, anchorZ, facingYaw, snapInPlace = false) => {
     const aliveEnts = unitObj.entities.filter((e) => e.alive && e.hp > 0);
     if (!aliveEnts.length) return;
 
@@ -487,7 +487,16 @@ export function createUnitSystem({
 
       const rotX = lx * cosY + lz * sinY;
       const rotZ = -lx * sinY + lz * cosY;
-      ent.targetPos = new BABYLON.Vector3(anchorX + rotX, ent.pos.y, anchorZ + rotZ);
+      const slotX = anchorX + rotX;
+      const slotZ = anchorZ + rotZ;
+
+      if (snapInPlace) {
+        ent.pos.x = slotX;
+        ent.pos.z = slotZ;
+        ent.targetPos = null;
+      } else {
+        ent.targetPos = new BABYLON.Vector3(slotX, ent.pos.y, slotZ);
+      }
       ent.yaw = facingYaw;
     });
   };
@@ -571,7 +580,7 @@ export function createUnitSystem({
     ent.mesh.scaling.set(scaleBoost, scaleBoost, 1.0);
   };
 
-  // Individual soldier-level combat & progression with forward-only front sight cones and post-fight reformation
+  // Individual soldier-level combat & progression with forward-only front sight cones and out-of-battle formation cohesion
   const updateSimulation = (rawDt, dt) => {
     simFrameCounter++;
     for (let i = combatEffects.length - 1; i >= 0; i--) {
@@ -602,6 +611,7 @@ export function createUnitSystem({
     let blueCount = 0;
 
     for (const u of aliveUnits) {
+      u.inBattleThisTick = false;
       for (const ent of u.entities) {
         if (ent.alive && ent.hp > 0) {
           allAliveSoldiers.push(ent);
@@ -655,6 +665,10 @@ export function createUnitSystem({
         && isInFrontSightCone(ent.pos.x, ent.pos.z, ent.yaw, nearestEnemyEnt.pos.x, nearestEnemyEnt.pos.z);
       const canAttack = inFrontRange && (!u.def.ranged || u.fire);
       let didAttack = false;
+
+      if (canAttack) {
+        u.inBattleThisTick = true;
+      }
 
       if (canAttack && ent.cooldown <= 0) {
         didAttack = true;
@@ -802,16 +816,19 @@ export function createUnitSystem({
       u.root.position.copyFrom(u.pos);
       u.root.rotation.y = u.yaw;
 
-      // Reform even if order is hold/halt (aligning slots & yaw in place without marching away)
-      if (u.needsReform) {
-        u.needsReform = false;
-        const canMarchToSlot = !u.hold && u.order !== "halt";
-        reformUnitFormation(u, cx, cz, u.yaw);
-        if (!canMarchToSlot) {
+      // When out of battle and not marching on an explicit order, maintain strict formation slots around anchor
+      const hasActiveMarchOrder = Boolean(u.targetPos) || aliveEnts.some((e) => Boolean(e.targetPos));
+      if (!u.inBattleThisTick && !hasActiveMarchOrder) {
+        if (u.needsReform || simFrameCounter % 4 === 0) {
+          u.needsReform = false;
+          reformUnitFormation(u, cx, cz, u.yaw, true);
           for (const e of aliveEnts) {
-            e.targetPos = null;
+            updateSoldierVisual(u, e, rawDt, dt, false, false);
           }
         }
+      } else if (u.needsReform) {
+        u.needsReform = false;
+        reformUnitFormation(u, cx, cz, u.yaw, false);
       }
 
       updateHpBar(u);
