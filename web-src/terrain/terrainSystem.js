@@ -14,61 +14,61 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
     while (autoMapProps.length) autoMapProps.pop().dispose();
   };
 
-  const sampleMapField = (field, x, z) => {
-    if (!mapGrid || !field) return 0;
-    const normX = (x / (MAP_RADIUS * 0.96) + 1) * 0.5;
-    const normZ = (1 - z / (MAP_RADIUS * 0.96)) * 0.5;
-    const fx = Math.min(mapGrid.size - 1.001, Math.max(0, normX * (mapGrid.size - 1)));
-    const fz = Math.min(mapGrid.size - 1.001, Math.max(0, normZ * (mapGrid.size - 1)));
-    const x0 = Math.floor(fx);
-    const z0 = Math.floor(fz);
-    const x1 = x0 + 1;
-    const z1 = z0 + 1;
-    const tx = fx - x0;
-    const tz = fz - z0;
-
-    const i00 = z0 * mapGrid.size + x0;
-    const i10 = z0 * mapGrid.size + x1;
-    const i01 = z1 * mapGrid.size + x0;
-    const i11 = z1 * mapGrid.size + x1;
-
-    const a = field[i00] * (1 - tx) + field[i10] * tx;
-    const b = field[i01] * (1 - tx) + field[i11] * tx;
-    return a * (1 - tz) + b * tz;
-  };
-
   const getGroundHeightAt = (x, z) => {
-    const r = Math.hypot(x, z);
-    if (r >= MAP_RADIUS) return -0.18;
-    const edgeFalloff = Math.max(0, Math.min(1, (MAP_RADIUS - r) / 1.8));
-    const mapH = sampleMapField(mapGrid?.heightField, x, z);
-    const ripple = Math.sin(x * 0.16) * Math.cos(z * 0.16) * 0.08;
-
-    let zoneH = 0;
-    for (const tz of terrainZones) {
-      const d = Math.hypot(x - tz.x, z - tz.z);
-      if (d < tz.radius) {
-        const factor = Math.cos((d / tz.radius) * (Math.PI * 0.5));
-        if (tz.kind === "hills") zoneH += factor * 1.35;
-        if (tz.kind === "water") zoneH -= factor * 0.42;
+    let h = 0;
+    if (mapGrid) {
+      const { size, heightField } = mapGrid;
+      const u = Math.max(0, Math.min(0.999999, (x / (MAP_RADIUS * 0.92) + 1) * 0.5));
+      const v = Math.max(0, Math.min(0.999999, (1 - z / (MAP_RADIUS * 0.92)) * 0.5));
+      const px = Math.floor(u * size);
+      const py = Math.floor(v * size);
+      h += heightField[py * size + px] || 0;
+    }
+    for (const zone of terrainZones) {
+      const d = Math.hypot(x - zone.x, z - zone.z);
+      if (d < zone.radius) {
+        const t = 1 - d / zone.radius;
+        if (zone.kind === "hills") h += t * t * 1.45;
+        else if (zone.kind === "water") h -= t * 0.35;
       }
     }
-
-    return (mapH + zoneH + ripple) * edgeFalloff;
+    return h;
   };
 
   const getTerrainInfoAt = (x, z) => {
-    for (const tz of terrainZones) {
-      if (Math.hypot(x - tz.x, z - tz.z) <= tz.radius) {
-        if (tz.kind === "water") return { type: "water", label: "River / Water (-45% Speed)", speedMult: 0.55, rangedDefMult: 1.0, atkMult: 0.85 };
-        if (tz.kind === "fords") return { type: "fords", label: "Ford (Safe Crossing)", speedMult: 0.92, rangedDefMult: 1.0, atkMult: 1.0 };
-        if (tz.kind === "trees") return { type: "trees", label: "Forest (-35% Ranged Dmg)", speedMult: 0.82, rangedDefMult: 0.65, atkMult: 1.0 };
-        if (tz.kind === "hills") return { type: "hills", label: "High Ground (+20% Attack)", speedMult: 0.88, rangedDefMult: 0.9, atkMult: 1.2 };
+    for (let i = terrainZones.length - 1; i >= 0; i--) {
+      const zone = terrainZones[i];
+      if (Math.hypot(x - zone.x, z - zone.z) <= zone.radius) {
+        if (zone.kind === "water") {
+          return { type: "water", label: "Water / River (-45% Speed)", speedMult: 0.55, rangedDefMult: 1.0, atkMult: 0.85 };
+        }
+        if (zone.kind === "fords") {
+          return { type: "fords", label: "Shallow Ford (-15% Speed)", speedMult: 0.85, rangedDefMult: 1.0, atkMult: 0.95 };
+        }
+        if (zone.kind === "hills") {
+          return { type: "hills", label: "High Ground (+15% Ranged Range)", speedMult: 0.88, rangedDefMult: 0.75, atkMult: 1.15 };
+        }
+        if (zone.kind === "trees") {
+          return { type: "trees", label: "Forest Cover (-30% Sight, +Ranged Def)", speedMult: 0.78, rangedDefMult: 0.65, atkMult: 0.9 };
+        }
       }
     }
-    const kindCode = sampleMapField(mapGrid?.terrainField, x, z);
-    if (kindCode > 0.65) return { type: "water", label: "River / Water (-45% Speed)", speedMult: 0.55, rangedDefMult: 1.0, atkMult: 0.85 };
-    if (kindCode < -0.35) return { type: "trees", label: "Forest (-35% Ranged Dmg)", speedMult: 0.82, rangedDefMult: 0.65, atkMult: 1.0 };
+
+    if (mapGrid) {
+      const { size, terrainField } = mapGrid;
+      const u = Math.max(0, Math.min(0.999999, (x / (MAP_RADIUS * 0.92) + 1) * 0.5));
+      const v = Math.max(0, Math.min(0.999999, (1 - z / (MAP_RADIUS * 0.92)) * 0.5));
+      const px = Math.floor(u * size);
+      const py = Math.floor(v * size);
+      const val = terrainField[py * size + px] || 0;
+      if (val > 0.35) {
+        return { type: "water", label: "River / Water (-45% Speed)", speedMult: 0.55, rangedDefMult: 1.0, atkMult: 0.85 };
+      }
+      if (val < -0.35) {
+        return { type: "trees", label: "Forest (-22% Speed, +Ranged Def)", speedMult: 0.78, rangedDefMult: 0.7, atkMult: 0.92 };
+      }
+    }
+
     return { type: "plains", label: "Plains (Normal)", speedMult: 1.0, rangedDefMult: 1.0, atkMult: 1.0 };
   };
 
@@ -165,22 +165,39 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
     }
   };
 
-  // Procedural map layout fallback when external PNG map assets aren't present on disk
+  // Detailed Sengoku battlefield map canvas fallback when external PNG map assets aren't present on disk
   const drawProceduralMapCanvas = (mapPath, size) => {
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    ctx.fillStyle = "#c9a078";
+    // Warm parchment/earth base gradient with subtle directional lighting
+    const baseGrad = ctx.createLinearGradient(0, 0, size, size);
+    baseGrad.addColorStop(0, "#d4ae84");
+    baseGrad.addColorStop(0.55, "#c59b6d");
+    baseGrad.addColorStop(1, "#b4885a");
+    ctx.fillStyle = baseGrad;
     ctx.fillRect(0, 0, size, size);
+
+    // Subtle dirt paths / military trails across the battlefield
+    ctx.save();
+    ctx.strokeStyle = "rgba(154, 118, 82, 0.45)";
+    ctx.lineWidth = size * 0.022;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(size * 0.12, size * 0.78);
+    ctx.quadraticCurveTo(size * 0.5, size * 0.52, size * 0.88, size * 0.22);
+    ctx.stroke();
+    ctx.restore();
 
     const key = String(mapPath || "").toLowerCase();
     const drawForestPatch = (cx, cy, r) => {
-      const grad = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, r);
-      grad.addColorStop(0, "rgba(58, 96, 52, 0.92)");
-      grad.addColorStop(0.7, "rgba(74, 114, 62, 0.65)");
-      grad.addColorStop(1, "rgba(201, 160, 120, 0)");
+      const grad = ctx.createRadialGradient(cx, cy, r * 0.08, cx, cy, r);
+      grad.addColorStop(0, "rgba(44, 86, 42, 0.95)");
+      grad.addColorStop(0.55, "rgba(62, 108, 52, 0.78)");
+      grad.addColorStop(0.85, "rgba(96, 128, 72, 0.35)");
+      grad.addColorStop(1, "rgba(197, 155, 109, 0)");
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -189,63 +206,111 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
 
     const drawRiverPath = (points, width) => {
       ctx.save();
-      ctx.strokeStyle = "rgba(76, 132, 186, 0.9)";
-      ctx.lineWidth = width;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
+
+      // Sandy/pebble bank border around water
+      ctx.strokeStyle = "rgba(182, 152, 114, 0.65)";
+      ctx.lineWidth = width * 1.32;
       ctx.beginPath();
       points.forEach(([px, py], idx) => {
         if (idx === 0) ctx.moveTo(px * size, py * size);
         else ctx.lineTo(px * size, py * size);
       });
       ctx.stroke();
+
+      // Deeper water channel
+      ctx.strokeStyle = "rgba(56, 114, 172, 0.92)";
+      ctx.lineWidth = width;
+      ctx.stroke();
+
+      // Lighter water highlight core
+      ctx.strokeStyle = "rgba(116, 174, 224, 0.45)";
+      ctx.lineWidth = width * 0.42;
+      ctx.stroke();
       ctx.restore();
     };
 
     if (key.includes("map1")) {
-      // River Delta
       drawRiverPath([[0.15, 0.05], [0.42, 0.38], [0.75, 0.92]], size * 0.11);
       drawRiverPath([[0.42, 0.38], [0.22, 0.88]], size * 0.08);
-      drawForestPatch(size * 0.24, size * 0.32, size * 0.16);
-      drawForestPatch(size * 0.72, size * 0.56, size * 0.18);
+      drawForestPatch(size * 0.24, size * 0.32, size * 0.17);
+      drawForestPatch(size * 0.72, size * 0.56, size * 0.19);
+      drawForestPatch(size * 0.56, size * 0.22, size * 0.12);
     } else if (key.includes("map2")) {
-      // Central Lake
-      ctx.fillStyle = "rgba(72, 128, 184, 0.92)";
+      ctx.fillStyle = "rgba(182, 152, 114, 0.6)";
+      ctx.beginPath();
+      ctx.arc(size * 0.5, size * 0.5, size * 0.21, 0, Math.PI * 2);
+      ctx.fill();
+      const lakeGrad = ctx.createRadialGradient(size * 0.5, size * 0.5, size * 0.02, size * 0.5, size * 0.5, size * 0.17);
+      lakeGrad.addColorStop(0, "rgba(110, 168, 220, 0.85)");
+      lakeGrad.addColorStop(0.7, "rgba(58, 116, 174, 0.92)");
+      lakeGrad.addColorStop(1, "rgba(42, 92, 145, 0.95)");
+      ctx.fillStyle = lakeGrad;
       ctx.beginPath();
       ctx.arc(size * 0.5, size * 0.5, size * 0.17, 0, Math.PI * 2);
       ctx.fill();
-      drawForestPatch(size * 0.25, size * 0.25, size * 0.15);
-      drawForestPatch(size * 0.76, size * 0.74, size * 0.16);
+      drawForestPatch(size * 0.25, size * 0.25, size * 0.16);
+      drawForestPatch(size * 0.76, size * 0.74, size * 0.17);
     } else if (key.includes("map3") || key.includes("map4") || key.includes("map5")) {
-      // River / Two Rivers / Mountain River
       drawRiverPath([[0.05, 0.52], [0.48, 0.45], [0.95, 0.56]], size * 0.1);
       if (key.includes("map4")) {
         drawRiverPath([[0.5, 0.05], [0.54, 0.5], [0.46, 0.95]], size * 0.09);
       }
-      drawForestPatch(size * 0.3, size * 0.22, size * 0.16);
-      drawForestPatch(size * 0.68, size * 0.78, size * 0.16);
+      drawForestPatch(size * 0.3, size * 0.22, size * 0.17);
+      drawForestPatch(size * 0.68, size * 0.78, size * 0.17);
     } else if (key.includes("map6") || key.includes("map7") || key.includes("map9")) {
-      // Mountains / The Stairs / Forest Hill
-      drawForestPatch(size * 0.35, size * 0.35, size * 0.2);
-      drawForestPatch(size * 0.68, size * 0.42, size * 0.18);
-      drawForestPatch(size * 0.5, size * 0.72, size * 0.17);
+      drawForestPatch(size * 0.35, size * 0.35, size * 0.21);
+      drawForestPatch(size * 0.68, size * 0.42, size * 0.19);
+      drawForestPatch(size * 0.5, size * 0.72, size * 0.18);
     } else {
-      // Plains / Practice / Trench / Valley
-      drawForestPatch(size * 0.28, size * 0.35, size * 0.14);
-      drawForestPatch(size * 0.74, size * 0.65, size * 0.14);
+      drawForestPatch(size * 0.28, size * 0.35, size * 0.15);
+      drawForestPatch(size * 0.74, size * 0.65, size * 0.15);
     }
 
     return canvas;
   };
 
+  const spawnMapSceneryProps = (terrainField, heightField, size) => {
+    let seed = 4219;
+    const rand = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+
+    // Place cedar/pine tree billboards naturally inside forest areas and occasional isolated bushes/rocks
+    for (let py = 12; py < size - 12; py += 12) {
+      for (let px = 12; px < size - 12; px += 12) {
+        const pIdx = py * size + px;
+        const tVal = terrainField[pIdx] || 0;
+        const wx = ((px / size) * 2 - 1) * (MAP_RADIUS * 0.9);
+        const wz = (1 - (py / size) * 2) * (MAP_RADIUS * 0.9);
+        if (Math.hypot(wx, wz) > MAP_RADIUS - 2.0) continue;
+
+        if (tVal < -0.32 && rand() < 0.65) {
+          const jx = (rand() - 0.5) * 1.5;
+          const jz = (rand() - 0.5) * 1.5;
+          const finalX = wx + jx;
+          const finalZ = wz + jz;
+          const wy = getGroundHeightAt(finalX, finalZ);
+          const scale = 0.9 + rand() * 0.45;
+          const treeSprite = createSpritePlane(`tree_${px}_${py}`, Math.floor(rand() * 8), 0, 1.45 * scale, 1.55 * scale);
+          treeSprite.position.set(finalX, wy + 0.68 * scale, finalZ);
+          autoMapProps.push(treeSprite);
+        }
+      }
+    }
+  };
+
   const renderTerrainFromSource = (sourceCanvasOrImage, mapPath) => {
     const size = 512;
+    clearAutoProps();
 
     const blurCanvas = document.createElement("canvas");
     blurCanvas.width = size;
     blurCanvas.height = size;
     const bCtx = blurCanvas.getContext("2d");
-    bCtx.filter = "blur(8px)";
+    bCtx.filter = "blur(6px)";
     bCtx.drawImage(sourceCanvasOrImage, 0, 0, size, size);
     bCtx.filter = "none";
     const srcData = bCtx.getImageData(0, 0, size, size).data;
@@ -269,6 +334,13 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
       const d = hash2D(ix + 1, iy + 1);
 
       return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
+    };
+
+    const fbmNoise = (x, y) => {
+      const n1 = smoothNoise(x, y) * 0.6;
+      const n2 = smoothNoise(x * 2.13 + 11.7, y * 2.13 + 29.1) * 0.28;
+      const n3 = smoothNoise(x * 4.71 + 43.2, y * 4.71 + 61.9) * 0.12;
+      return n1 + n2 + n3;
     };
 
     const prevTex = groundMat.diffuseTexture;
@@ -296,32 +368,35 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
         const forestScore = Math.max(0, Math.min(1, (g - Math.max(r * 1.05, b * 1.05)) * 2.5));
         const bankScore = Math.max(0, 1 - Math.abs(waterScore - 0.35) * 4.5) * (waterScore > 0.08 ? 1 : 0);
 
-        const nCoarse = smoothNoise(px * 0.02, py * 0.02) - 0.5;
-        const nFine = smoothNoise(px * 0.06 + 19.3, py * 0.06 + 47.7) - 0.5;
-        const grain = nCoarse * 0.028 + nFine * 0.01;
+        const nMacro = fbmNoise(px * 0.015, py * 0.015) - 0.5;
+        const nDetail = smoothNoise(px * 0.075 + 19.3, py * 0.075 + 47.7) - 0.5;
+        const grain = nMacro * 0.055 + nDetail * 0.022;
 
-        let cr = 0.79 + grain;
-        let cg = 0.63 + grain * 0.9;
-        let cb = 0.47 + grain * 0.8;
+        // Richer earth & grass palette with subtle contour/ridge shading
+        let cr = 0.76 + grain;
+        let cg = 0.61 + grain * 0.92;
+        let cb = 0.44 + grain * 0.75;
 
         if (forestScore > 0.02) {
           const f = forestScore;
-          cr = cr * (1 - f) + (0.36 + grain) * f;
-          cg = cg * (1 - f) + (0.52 + grain) * f;
-          cb = cb * (1 - f) + (0.34 + grain * 0.7) * f;
+          cr = cr * (1 - f) + (0.28 + grain * 0.8) * f;
+          cg = cg * (1 - f) + (0.48 + grain) * f;
+          cb = cb * (1 - f) + (0.27 + grain * 0.65) * f;
         }
 
         if (bankScore > 0.02) {
-          const k = bankScore * 0.55;
-          cr = cr * (1 - k) + 0.68 * k;
-          cg = cg * (1 - k) + 0.65 * k;
-          cb = cb * (1 - k) + 0.60 * k;
+          const k = bankScore * 0.65;
+          cr = cr * (1 - k) + 0.72 * k;
+          cg = cg * (1 - k) + 0.66 * k;
+          cb = cb * (1 - k) + 0.54 * k;
         }
+
         if (waterScore > 0.02) {
           const w = waterScore;
-          cr = cr * (1 - w) + (0.48 + grain * 0.6) * w;
-          cg = cg * (1 - w) + (0.64 + grain * 0.7) * w;
-          cb = cb * (1 - w) + (0.76 + grain * 0.8) * w;
+          const shimmer = Math.sin(px * 0.14 + nDetail * 8) * 0.02 * w;
+          cr = cr * (1 - w) + (0.34 + grain * 0.5 + shimmer) * w;
+          cg = cg * (1 - w) + (0.56 + grain * 0.6 + shimmer) * w;
+          cb = cb * (1 - w) + (0.74 + grain * 0.7 + shimmer) * w;
         }
 
         out[i] = Math.max(0, Math.min(255, Math.round(cr * 255)));
@@ -329,7 +404,7 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
         out[i + 2] = Math.max(0, Math.min(255, Math.round(cb * 255)));
         out[i + 3] = 255;
 
-        heightField[pIdx] = forestScore * 0.55 - waterScore * 0.35;
+        heightField[pIdx] = forestScore * 0.55 - waterScore * 0.35 + nMacro * 0.25;
         terrainField[pIdx] = waterScore > forestScore ? waterScore : -forestScore;
       }
     }
@@ -345,6 +420,7 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
       prevTex.dispose();
     }
 
+    spawnMapSceneryProps(terrainField, heightField, size);
     restoreSavedZonesForMap(mapPath);
     onTerrainChanged?.();
   };
@@ -364,7 +440,7 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
     const tryCandidate = (idx) => {
       if (token !== terrainLoadToken) return;
       if (idx >= candidateUrls.length) {
-        renderTerrainFromSource(drawProceduralMapCanvas(mapPath, 256), mapPath);
+        renderTerrainFromSource(drawProceduralMapCanvas(mapPath, 512), mapPath);
         return;
       }
 
