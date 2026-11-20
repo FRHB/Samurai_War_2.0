@@ -31,7 +31,13 @@ export function createUiController({
   const redCountEl = document.getElementById("redCount");
   const blueCountEl = document.getElementById("blueCount");
 
-  const ensureInteractiveTopControl = (el) => {
+  let selectedUnit = UNITS[0];
+  let selectedSizeOption = UNIT_SIZE_OPTIONS[0];
+  let currentMode = "sandbox";
+  let activeTeam = 1;
+  let pointerAction = "deploy";
+
+  const bindInteractiveButton = (el, handler) => {
     if (!el) return;
     el.style.pointerEvents = "auto";
     el.style.cursor = "pointer";
@@ -39,28 +45,32 @@ export function createUiController({
       el.style.position = "relative";
     }
     if (!el.style.zIndex) {
-      el.style.zIndex = "22";
+      el.style.zIndex = "30";
     }
-    el.onpointerdown = (e) => {
-      e.stopPropagation();
-    };
-  };
 
-  for (const ctrl of [
-    mapSelect,
-    modeSandboxBtn,
-    modePracticeBtn,
-    modeEditorBtn,
-    team1Btn,
-    team2Btn,
-    actionDeployBtn,
-    actionOrderBtn,
-    speedBtn,
-    musicBtn,
-    clearBtn
-  ]) {
-    ensureInteractiveTopControl(ctrl);
-  }
+    let pointerStart = null;
+    el.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      pointerStart = { x: e.clientX, y: e.clientY };
+    });
+
+    el.addEventListener("pointerup", (e) => {
+      e.stopPropagation();
+      if (!pointerStart) return;
+      const moved = Math.hypot(e.clientX - pointerStart.x, e.clientY - pointerStart.y);
+      pointerStart = null;
+      if (moved < 8) {
+        handler(e);
+      }
+    });
+
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (e.detail === 0) {
+        handler(e);
+      }
+    });
+  };
 
   if (!unitRosterBar && topBar) {
     unitRosterBar = document.createElement("div");
@@ -84,13 +94,11 @@ export function createUiController({
       "flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:20;pointer-events:auto;";
   }
 
-  let selectedUnit = UNITS[0];
-  let selectedSizeOption = UNIT_SIZE_OPTIONS[0];
-  let currentMode = "sandbox";
-  let activeTeam = 1;
-  let pointerAction = "deploy";
-
   if (mapSelect) {
+    mapSelect.style.pointerEvents = "auto";
+    mapSelect.style.position = "relative";
+    mapSelect.style.zIndex = "30";
+    mapSelect.addEventListener("pointerdown", (e) => e.stopPropagation());
     mapSelect.innerHTML = "";
     MAPS.forEach((m) => {
       const opt = document.createElement("option");
@@ -119,8 +127,8 @@ export function createUiController({
   const sizeSelect = document.createElement("select");
   sizeSelect.id = "unitSizeSelect";
   sizeSelect.style.cssText =
-    "background:#1e293b;color:#f8fafc;font-size:12px;font-weight:500;padding:4px 8px;border-radius:6px;border:1px solid #475569;cursor:pointer;pointer-events:auto;";
-  sizeSelect.onpointerdown = (e) => e.stopPropagation();
+    "background:#1e293b;color:#f8fafc;font-size:12px;font-weight:500;padding:4px 8px;border-radius:6px;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:30;";
+  sizeSelect.addEventListener("pointerdown", (e) => e.stopPropagation());
   UNIT_SIZE_OPTIONS.forEach((optDef) => {
     const opt = document.createElement("option");
     opt.value = String(optDef.soldiers);
@@ -166,7 +174,7 @@ export function createUiController({
         "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:21;";
       btn.innerHTML = `<img src="${u.icon}" alt="${u.label}" style="width:16px;height:16px;object-fit:contain;pointer-events:none;" onerror="this.style.display='none'" /><span style="pointer-events:none;">${u.label}</span>`;
 
-      const selectThisUnit = () => {
+      bindInteractiveButton(btn, () => {
         if (activeUnitBtn) {
           activeUnitBtn.style.background = "#1e293b";
           activeUnitBtn.style.borderColor = "#475569";
@@ -180,12 +188,7 @@ export function createUiController({
         syncDeploySubBar();
         onSelectUnitDef(u);
         soundManager.playSfx(soundManager.sfx.select);
-      };
-
-      btn.addEventListener("click", selectThisUnit);
-      btn.onpointerdown = (e) => {
-        e.stopPropagation();
-      };
+      });
 
       if (idx === 0) {
         activeUnitBtn = btn;
@@ -206,7 +209,7 @@ export function createUiController({
       btn.style.cssText =
         "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:21;";
       btn.innerHTML = `<img src="${t.icon}" alt="${t.label}" style="width:16px;height:16px;object-fit:contain;pointer-events:none;" onerror="this.style.display='none'" /><span style="pointer-events:none;">${t.label}</span>`;
-      btn.addEventListener("click", () => {
+      bindInteractiveButton(btn, () => {
         if (activeToolBtn) {
           activeToolBtn.style.background = "#1e293b";
           activeToolBtn.style.borderColor = "#475569";
@@ -219,9 +222,6 @@ export function createUiController({
         onSelectEditorTool(t);
         soundManager.playSfx(soundManager.sfx.select);
       });
-      btn.onpointerdown = (e) => {
-        e.stopPropagation();
-      };
       if (idx === 1) {
         activeToolBtn = btn;
         btn.style.background = "#334155";
@@ -261,19 +261,19 @@ export function createUiController({
 
   syncModeVisuals();
 
-  modeSandboxBtn?.addEventListener("click", () => {
+  bindInteractiveButton(modeSandboxBtn, () => {
     setActiveModeButton("sandbox");
     onSelectMode("sandbox");
     soundManager.playSfx(soundManager.sfx.select);
   });
 
-  modePracticeBtn?.addEventListener("click", () => {
+  bindInteractiveButton(modePracticeBtn, () => {
     setActiveModeButton("practice");
     onSelectMode("practice");
     soundManager.playSfx(soundManager.sfx.select);
   });
 
-  modeEditorBtn?.addEventListener("click", () => {
+  bindInteractiveButton(modeEditorBtn, () => {
     setActiveModeButton("editor");
     onSelectMode("editor");
     soundManager.playSfx(soundManager.sfx.select);
@@ -298,13 +298,13 @@ export function createUiController({
   };
   setTeamSelection(activeTeam);
 
-  team1Btn?.addEventListener("click", () => {
+  bindInteractiveButton(team1Btn, () => {
     setTeamSelection(1);
     onSelectTeam(1);
     soundManager.playSfx(soundManager.sfx.select);
   });
 
-  team2Btn?.addEventListener("click", () => {
+  bindInteractiveButton(team2Btn, () => {
     setTeamSelection(2);
     onSelectTeam(2);
     soundManager.playSfx(soundManager.sfx.select);
@@ -329,32 +329,32 @@ export function createUiController({
   };
   syncActionButtons(pointerAction);
 
-  actionDeployBtn?.addEventListener("click", () => {
+  bindInteractiveButton(actionDeployBtn, () => {
     syncActionButtons("deploy");
     onSelectPointerAction("deploy");
     soundManager.playSfx(soundManager.sfx.select);
   });
 
-  actionOrderBtn?.addEventListener("click", () => {
+  bindInteractiveButton(actionOrderBtn, () => {
     syncActionButtons("order");
     onSelectPointerAction("order");
     soundManager.playSfx(soundManager.sfx.select);
   });
 
-  speedBtn?.addEventListener("click", () => {
+  bindInteractiveButton(speedBtn, () => {
     const nextSpeed = onToggleSimSpeed();
-    speedBtn.textContent = `Speed: ${nextSpeed}x`;
+    if (speedBtn) speedBtn.textContent = `Speed: ${nextSpeed}x`;
     soundManager.playSfx(soundManager.sfx.select);
   });
 
   let musicOn = false;
-  musicBtn?.addEventListener("click", () => {
+  bindInteractiveButton(musicBtn, () => {
     musicOn = !musicOn;
     soundManager.setMusicEnabled(musicOn);
-    musicBtn.textContent = `Music: ${musicOn ? "On" : "Off"}`;
+    if (musicBtn) musicBtn.textContent = `Music: ${musicOn ? "On" : "Off"}`;
   });
 
-  clearBtn?.addEventListener("click", () => {
+  bindInteractiveButton(clearBtn, () => {
     onClearAll();
     soundManager.playSfx(soundManager.sfx.select);
   });
@@ -366,8 +366,7 @@ export function createUiController({
 
   const orderButtons = document.querySelectorAll("[data-order]");
   orderButtons.forEach((btn) => {
-    ensureInteractiveTopControl(btn);
-    btn.addEventListener("click", () => {
+    bindInteractiveButton(btn, () => {
       orderButtons.forEach((b) => {
         b.classList.remove("ring-2", "ring-amber-400", "bg-amber-600", "text-white");
         b.style.outline = "none";
