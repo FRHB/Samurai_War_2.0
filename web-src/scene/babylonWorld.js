@@ -67,12 +67,17 @@ export function createBabylonWorld(canvas) {
   rimMat.diffuseColor = new BABYLON.Color3(0.45, 0.42, 0.37);
   rimRing.material = rimMat;
 
-  // Separate prop billboard module (trees) + legacy sheet support
+  // Separate prop billboard module (trees) + clean full-quad UV mapping for custom textures
   const propBillboards = createPropBillboards(scene);
   const billboardSourceTex = new BABYLON.Texture("assets/Textures/Billboards.png", scene, false, true);
   billboardSourceTex.hasAlpha = true;
   billboardSourceTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
   billboardSourceTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+
+  const applyFullQuadUvs = (plane) => {
+    const uvs = [0, 0, 1, 0, 1, 1, 0, 1];
+    plane.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs, true);
+  };
 
   const applyCellToTexture = (tex, col, row) => {
     if (!tex || tex instanceof BABYLON.DynamicTexture) return;
@@ -83,6 +88,17 @@ export function createBabylonWorld(canvas) {
   };
 
   const setSpriteCell = (plane, col, row) => {
+    if (plane.metadata?.usesFullTexture) {
+      applyFullQuadUvs(plane);
+      if (plane.material?.diffuseTexture) {
+        plane.material.diffuseTexture.uScale = 1;
+        plane.material.diffuseTexture.vScale = 1;
+        plane.material.diffuseTexture.uOffset = 0;
+        plane.material.diffuseTexture.vOffset = 0;
+      }
+      return;
+    }
+
     const u0 = col / SPRITE_COLS;
     const u1 = (col + 1) / SPRITE_COLS;
     const vTop = 1 - row / SPRITE_ROWS;
@@ -141,7 +157,14 @@ export function createBabylonWorld(canvas) {
       mat.dispose();
     });
 
-    if (!customTexture) {
+    if (customTexture) {
+      plane.metadata = { ...(plane.metadata || {}), usesFullTexture: true };
+      applyFullQuadUvs(plane);
+      mat.diffuseTexture.uScale = 1;
+      mat.diffuseTexture.vScale = 1;
+      mat.diffuseTexture.uOffset = 0;
+      mat.diffuseTexture.vOffset = 0;
+    } else {
       setSpriteCell(plane, col, row);
     }
     return plane;

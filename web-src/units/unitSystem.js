@@ -109,11 +109,15 @@ export function createUnitSystem({
   const applyEntityVisualState = (entity, unitId, team, fallen) => {
     const tex = billboardAtlas.getUnitBillboardTexture(unitId, team, fallen ? "fallen" : "alive");
     if (entity.mesh.material && tex) {
+      entity.mesh.metadata = { ...(entity.mesh.metadata || {}), usesFullTexture: true };
       entity.mesh.material.diffuseTexture = tex;
       entity.mesh.material.diffuseTexture.uScale = 1;
       entity.mesh.material.diffuseTexture.vScale = 1;
       entity.mesh.material.diffuseTexture.uOffset = 0;
       entity.mesh.material.diffuseTexture.vOffset = 0;
+      if (setSpriteCell) {
+        setSpriteCell(entity.mesh, 0, 0);
+      }
     }
   };
 
@@ -228,7 +232,9 @@ export function createUnitSystem({
     };
 
     for (const ent of formation.entities) {
-      if (ent.mesh) ent.mesh.metadata = { unit: unitObj, entity: ent };
+      if (ent.mesh) {
+        ent.mesh.metadata = { ...(ent.mesh.metadata || {}), unit: unitObj, entity: ent, usesFullTexture: true };
+      }
     }
 
     units.push(unitObj);
@@ -298,7 +304,7 @@ export function createUnitSystem({
         if (!ent.fallen) {
           ent.fallen = true;
           ent.mesh.isPickable = false;
-          ent.mesh.metadata = null;
+          ent.mesh.metadata = { ...(ent.mesh.metadata || {}), unit: null, entity: null, usesFullTexture: true };
           ent.mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
           ent.mesh.rotation.set(Math.PI / 2, 0, Math.random() * Math.PI);
           ent.mesh.position.set(ent.baseLocalX, 0.07, ent.baseLocalZ);
@@ -491,7 +497,7 @@ export function createUnitSystem({
       if (setSpriteCell) {
         for (const ent of u.entities) {
           if (ent.alive) {
-            setSpriteCell(ent.mesh, ent.index % 8, u.team === 2 ? 1 : 2);
+            setSpriteCell(ent.mesh, 0, 0);
           }
         }
       }
