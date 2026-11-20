@@ -174,8 +174,8 @@ export function createUnitSystem({
       const mesh = createSpritePlane(`unit_${unitDef.id}_s_${i}`, i % 8, team === 2 ? 1 : 2, spec.width, spec.height, aliveTex);
       mesh.parent = root;
       mesh.isPickable = true;
-      mesh.freezeWorldMatrix();
       mesh.position.set(lx, baseY, lz);
+      mesh.computeWorldMatrix(true);
 
       const entity = {
         id: `${unitDef.id}_sol_${i}`,
