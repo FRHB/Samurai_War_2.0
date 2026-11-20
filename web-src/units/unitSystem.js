@@ -2,6 +2,7 @@ import * as BABYLON from "@babylonjs/core";
 import { createUnitBillboardAtlas, getUnitBillboardSpec } from "./unitBillboards.js";
 
 const DEAD_CLEANUP_DELAY = 1.6;
+const FRONT_CONE_HALF_ANGLE = (55 * Math.PI) / 180;
 const FORMATION_COLUMNS_BY_SIZE = Object.freeze({
   10: 5,
   50: 10,
@@ -22,6 +23,24 @@ export function createUnitSystem({
   const combatEffects = [];
   const billboardAtlas = createUnitBillboardAtlas(scene);
   let simFrameCounter = 0;
+
+  const normalizeAngle = (angle) => {
+    let a = angle;
+    while (a > Math.PI) a -= Math.PI * 2;
+    while (a < -Math.PI) a += Math.PI * 2;
+    return a;
+  };
+
+  // Yaw convention matches atan2(dx, dz) where facing angle 0 points along +Z and angle +PI/2 points along +X
+  const isInFrontSightCone = (fromX, fromZ, facingYaw, toX, toZ, halfAngle = FRONT_CONE_HALF_ANGLE) => {
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    const dist = Math.hypot(dx, dz);
+    if (dist <= 0.0001) return true;
+    const angleToTarget = Math.atan2(dx, dz);
+    const delta = Math.abs(normalizeAngle(angleToTarget - facingYaw));
+    return delta <= halfAngle;
+  };
 
   const spawnCombatFlash = (pos, isSmoke = false, radius = 0.45) => {
     if (isSmoke) {
@@ -58,7 +77,7 @@ export function createUnitSystem({
     combatEffects.push({ mesh: slash, ttl: 0.18, startScale: 1, isFlash: true });
   };
 
-  // Light team-colored range outline ring for ranged units (bow, matchlock, cannon)
+  // Forward-facing sight/range arc outline for ranged units (bow, matchlock, cannon)
   const createRangeOutline = (root, unitDef, team) => {
     if (!unitDef?.ranged || !unitDef?.range) return null;
     const isRed = team === 1;
@@ -66,33 +85,34 @@ export function createUnitSystem({
       ? new BABYLON.Color3(1.0, 0.36, 0.36)
       : new BABYLON.Color3(0.36, 0.68, 1.0);
 
-    const ring = BABYLON.MeshBuilder.CreateTorus(
-      `rangeOutline_${unitDef.id}_${team}_${Math.random().toString(36).slice(2, 6)}`,
-      {
-        diameter: unitDef.range * 2,
-        thickness: 0.085,
-        tessellation: 64
-      },
+    const segments = 28;
+    const arcPoints = [];
+    for (let s = 0; s <= segments; s++) {
+      const t = s / segments;
+      const theta = -FRONT_CONE_HALF_ANGLE + t * (FRONT_CONE_HALF_ANGLE * 2);
+      const px = Math.sin(theta) * unitDef.range;
+      const pz = Math.cos(theta) * unitDef.range;
+      arcPoints.push(new BABYLON.Vector3(px, 0.08, pz));
+    }
+    arcPoints.push(new BABYLON.Vector3(0, 0.08, 0));
+    arcPoints.push(arcPoints[0].clone());
+
+    const coneLine = BABYLON.MeshBuilder.CreateLines(
+      `rangeCone_${unitDef.id}_${team}_${Math.random().toString(36).slice(2, 6)}`,
+      { points: arcPoints, updatable: false },
       scene
     );
-    ring.parent = root;
-    ring.position.y = 0.07;
-    ring.isPickable = false;
+    coneLine.parent = root;
+    coneLine.isPickable = false;
+    coneLine.color = outlineColor;
+    coneLine.alpha = 0.45;
 
-    const mat = new BABYLON.StandardMaterial(`rangeMat_${unitDef.id}_${team}_${Math.random().toString(36).slice(2, 6)}`, scene);
-    mat.diffuseColor = outlineColor;
-    mat.emissiveColor = outlineColor.scale(0.65);
-    mat.alpha = 0.36;
-    mat.backFaceCulling = false;
-    ring.material = mat;
-
-    ring.onDisposeObservable.add(() => mat.dispose());
-    return { ring, mat, baseRange: unitDef.range };
+    return { ring: coneLine, baseRange: unitDef.range };
   };
 
   const updateRangeOutline = (unitObj, tInfo) => {
     if (!unitObj.rangeOutline) return;
-    const { ring, mat, baseRange } = unitObj.rangeOutline;
+    const { ring, baseRange } = unitObj.rangeOutline;
     if (ring.isDisposed()) return;
     if (unitObj.hp <= 0) {
       ring.setEnabled(false);
@@ -101,7 +121,7 @@ export function createUnitSystem({
     const effectiveRange = tInfo?.type === "hills" ? baseRange * 1.15 : baseRange;
     const scaleRatio = effectiveRange / Math.max(0.01, baseRange);
     ring.scaling.set(scaleRatio, 1, scaleRatio);
-    mat.alpha = unitObj.selected ? 0.56 : 0.34;
+    ring.alpha = unitObj.selected ? 0.72 : 0.44;
     ring.setEnabled(true);
   };
 
@@ -204,7 +224,7 @@ export function createUnitSystem({
   };
 
   // Each soldier is spawned as an independent world entity with its own position, HP, and combat state
-  const createSoldierEntity = (unitObj, unitDef, team, idx, worldX, worldZ) => {
+  const createSoldierEntity = (unitObj, unitDef, team, idx, worldX, worldZ, slotOffsetX, slotOffsetZ) => {
     const perSoldierHp = unitDef.hp ?? 50;
     const perSoldierDmg = unitDef.dmg ?? 8;
     const perSoldierArmor = unitDef.armor ?? 4;
@@ -242,6 +262,8 @@ export function createUnitSystem({
       cooldown: (idx % 5) * 0.14,
       pos: new BABYLON.Vector3(worldX, wy, worldZ),
       targetPos: null,
+      offsetX: slotOffsetX,
+      offsetZ: slotOffsetZ,
       yaw: team === 1 ? 0 : Math.PI,
       baseY: spec.yOffset,
       node,
@@ -267,9 +289,16 @@ export function createUnitSystem({
       const c = i % cols;
       const lx = count === 1 ? 0 : (c - (cols - 1) / 2) * spacing;
       const lz = count === 1 ? 0 : (r - (rows - 1) / 2) * spacing;
-      const entity = createSoldierEntity(unitObj, unitDef, team, i, centerPt.x + lx, centerPt.z + lz);
-      entity.offsetX = lx;
-      entity.offsetZ = lz;
+      const entity = createSoldierEntity(
+        unitObj,
+        unitDef,
+        team,
+        i,
+        centerPt.x + lx,
+        centerPt.z + lz,
+        lx,
+        lz
+      );
       entities.push(entity);
     }
 
@@ -288,6 +317,7 @@ export function createUnitSystem({
     const root = new BABYLON.TransformNode(`unit_${unitDef.id}_${Date.now()}_${Math.random()}`, scene);
     root.position.set(point.x, y, point.z);
 
+    const initialYaw = team === 1 ? 0 : Math.PI;
     const unitObj = {
       id: `${unitDef.id}_${Math.random().toString(36).slice(2, 7)}`,
       def: unitDef,
@@ -301,7 +331,7 @@ export function createUnitSystem({
       sightRange: unitDef.sightRange ?? Math.max(16, (unitDef.range ?? 3) * 1.35),
       pos: new BABYLON.Vector3(point.x, y, point.z),
       targetPos: null,
-      yaw: team === 1 ? 0 : Math.PI,
+      yaw: initialYaw,
       cooldown: 0,
       animTime: 0,
       order: activeOrder === "halt" ? "halt" : activeOrder === "run" ? "run" : "walk",
@@ -391,19 +421,59 @@ export function createUnitSystem({
       const oz = (r - (rowsCount - 1) / 2) * spacing;
       const destX = centerPt.x + ox;
       const destZ = centerPt.z + oz;
+      const moveAngle = aimAngle !== null
+        ? aimAngle
+        : Math.atan2(destX - u.pos.x, destZ - u.pos.z);
+
       u.targetPos = new BABYLON.Vector3(destX, u.pos.y, destZ);
       u.hold = false;
       if (u.order === "halt") u.order = "walk";
-      if (aimAngle !== null) u.yaw = aimAngle;
+      u.yaw = moveAngle;
+
+      const cosY = Math.cos(moveAngle);
+      const sinY = Math.sin(moveAngle);
 
       for (const ent of u.entities) {
         if (!ent.alive) continue;
+        const baseOx = ent.offsetX ?? 0;
+        const baseOz = ent.offsetZ ?? 0;
+        // Rotate slot offset by facing angle so formation shape stays oriented along the advance direction
+        const rotX = baseOx * cosY + baseOz * sinY;
+        const rotZ = -baseOx * sinY + baseOz * cosY;
         ent.targetPos = new BABYLON.Vector3(
-          destX + (ent.offsetX ?? 0),
+          destX + rotX,
           ent.pos.y,
-          destZ + (ent.offsetZ ?? 0)
+          destZ + rotZ
         );
+        ent.yaw = moveAngle;
       }
+    });
+  };
+
+  // Reform surviving soldiers into their own formation around their post-battle anchor
+  const reformUnitFormation = (unitObj, anchorX, anchorZ, facingYaw) => {
+    const aliveEnts = unitObj.entities.filter((e) => e.alive && e.hp > 0);
+    if (!aliveEnts.length) return;
+
+    const spec = getUnitBillboardSpec(unitObj.def.id);
+    const cols = resolveUniformColumns(aliveEnts.length);
+    const rows = Math.ceil(aliveEnts.length / cols);
+    const spacing = Number(Math.max(spec.width * 1.15, 0.92).toFixed(3));
+    const cosY = Math.cos(facingYaw);
+    const sinY = Math.sin(facingYaw);
+
+    aliveEnts.forEach((ent, idx) => {
+      const r = Math.floor(idx / cols);
+      const c = idx % cols;
+      const lx = aliveEnts.length === 1 ? 0 : (c - (cols - 1) / 2) * spacing;
+      const lz = aliveEnts.length === 1 ? 0 : (r - (rows - 1) / 2) * spacing;
+      ent.offsetX = lx;
+      ent.offsetZ = lz;
+
+      const rotX = lx * cosY + lz * sinY;
+      const rotZ = -lx * sinY + lz * cosY;
+      ent.targetPos = new BABYLON.Vector3(anchorX + rotX, ent.pos.y, anchorZ + rotZ);
+      ent.yaw = facingYaw;
     });
   };
 
@@ -486,7 +556,7 @@ export function createUnitSystem({
     ent.mesh.scaling.set(scaleBoost, scaleBoost, 1.0);
   };
 
-  // Individual soldier-level combat & progression so armies advance with clear breathing room between combatants
+  // Individual soldier-level combat & progression with forward-only front sight cones and post-fight reformation
   const updateSimulation = (rawDt, dt) => {
     simFrameCounter++;
     for (let i = combatEffects.length - 1; i >= 0; i--) {
@@ -532,7 +602,7 @@ export function createUnitSystem({
     const minEnemyMeleeGap = 1.18;
     const minEnemyMeleeGapSq = minEnemyMeleeGap * minEnemyMeleeGap;
 
-    // 1. Advance each alive soldier & resolve engagements individually
+    // 1. Advance each alive soldier & resolve engagements within front sight cone
     for (let i = 0; i < soldierCount; i++) {
       const ent = allAliveSoldiers[i];
       const u = ent.unit;
@@ -552,22 +622,30 @@ export function createUnitSystem({
         const ddx = otherEnt.pos.x - ent.pos.x;
         const ddz = otherEnt.pos.z - ent.pos.z;
         const dSq = ddx * ddx + ddz * ddz;
-        if (dSq <= sightRangeSq && dSq < nearestEnemyDistSq) {
-          nearestEnemyDistSq = dSq;
-          nearestEnemyEnt = otherEnt;
+        if (dSq > sightRangeSq || dSq >= nearestEnemyDistSq) continue;
+
+        // Enforce front sight cone so enemies behind/flanking outside front sight are not auto-acquired in 360°
+        if (!isInFrontSightCone(ent.pos.x, ent.pos.z, ent.yaw, otherEnt.pos.x, otherEnt.pos.z)) {
+          continue;
         }
+
+        nearestEnemyDistSq = dSq;
+        nearestEnemyEnt = otherEnt;
       }
 
       const nearestDist = nearestEnemyEnt ? Math.sqrt(nearestEnemyDistSq) : Infinity;
       const effectiveRange = tInfo.type === "hills" && u.def.ranged ? u.def.range * 1.15 : u.def.range;
-      const canAttack = nearestEnemyEnt && nearestDist <= effectiveRange && (!u.def.ranged || u.fire);
+      const inFrontRange = nearestEnemyEnt
+        && nearestDist <= effectiveRange
+        && isInFrontSightCone(ent.pos.x, ent.pos.z, ent.yaw, nearestEnemyEnt.pos.x, nearestEnemyEnt.pos.z);
+      const canAttack = inFrontRange && (!u.def.ranged || u.fire);
       let didAttack = false;
 
       if (canAttack && ent.cooldown <= 0) {
         didAttack = true;
+        ent.wasEngaged = true;
         ent.attackTimer = 0.28;
         ent.cooldown = u.def.cd * (0.95 + ((ent.index % 5) * 0.08));
-        ent.yaw = Math.atan2(nearestEnemyEnt.pos.x - ent.pos.x, nearestEnemyEnt.pos.z - ent.pos.z);
 
         const targetTerrain = getTerrainInfoAt(nearestEnemyEnt.pos.x, nearestEnemyEnt.pos.z);
         const defMult = u.def.ranged ? targetTerrain.rangedDefMult : 1.0;
@@ -611,6 +689,12 @@ export function createUnitSystem({
           syncFormationStats(nearestEnemyEnt.unit);
           updateHpBar(nearestEnemyEnt.unit);
         }
+      }
+
+      // If a soldier was fighting an in-cone enemy and that enemy falls, reform into its own formation
+      if (!nearestEnemyEnt && ent.wasEngaged) {
+        ent.wasEngaged = false;
+        u.needsReform = true;
       }
 
       let moveDest = null;
@@ -687,9 +771,27 @@ export function createUnitSystem({
       }
       const cx = sumX / aliveEnts.length;
       const cz = sumZ / aliveEnts.length;
+
+      // Sync formation yaw to average facing of surviving soldiers so front-sight cone matches facing
+      let sinSum = 0;
+      let cosSum = 0;
+      for (const e of aliveEnts) {
+        sinSum += Math.sin(e.yaw);
+        cosSum += Math.cos(e.yaw);
+      }
+      if (Math.hypot(sinSum, cosSum) > 0.001) {
+        u.yaw = Math.atan2(sinSum, cosSum);
+      }
+
       u.pos.set(cx, getGroundHeightAt(cx, cz), cz);
       u.root.position.copyFrom(u.pos);
       u.root.rotation.y = u.yaw;
+
+      if (u.needsReform && !u.hold && u.order !== "halt") {
+        u.needsReform = false;
+        reformUnitFormation(u, cx, cz, u.yaw);
+      }
+
       updateHpBar(u);
       updateRangeOutline(u, getTerrainInfoAt(cx, cz));
 
