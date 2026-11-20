@@ -333,6 +333,17 @@ export function bootstrapGame() {
   const canvas = document.getElementById("renderCanvas");
   const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
 
+  const toCanvasLocalCoords = (clientX, clientY) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+      rect
+    };
+  };
+
   const world = createBabylonWorld(canvas);
   const {
     scene,
@@ -479,8 +490,9 @@ export function bootstrapGame() {
     "position:fixed;border:1.5px dashed #fbbf24;background:rgba(251,191,36,0.14);pointer-events:none;display:none;z-index:25;";
   document.body.appendChild(selectionBox);
 
-  const pickGround = (x, y) => {
-    const pick = scene.pick(x, y, (mesh) => mesh === ground);
+  const pickGround = (clientX, clientY) => {
+    const local = toCanvasLocalCoords(clientX, clientY);
+    const pick = scene.pick(local.x, local.y, (mesh) => mesh === ground);
     if (pick?.hit && pick.pickedPoint) {
       return pick.pickedPoint;
     }
@@ -522,7 +534,8 @@ export function bootstrapGame() {
     if (state.mode === "editor") {
       if (pt && state.selectedEditorTool) {
         if (state.selectedEditorTool.id === "erase") {
-          const hit = scene.pick(e.clientX, e.clientY);
+          const local = toCanvasLocalCoords(e.clientX, e.clientY);
+          const hit = scene.pick(local.x, local.y);
           if (hit?.pickedMesh) terrainSystem.eraseTerrainFeatureAtMesh(hit.pickedMesh);
         } else {
           terrainSystem.spawnTerrainFeature(pt, state.selectedEditorTool);
@@ -612,7 +625,8 @@ export function bootstrapGame() {
     const moved = dragStart ? Math.hypot(endX - dragStart.x, endY - dragStart.y) : 0;
 
     if (moved < 6) {
-      const unitPick = scene.pick(endX, endY, (mesh) => Boolean(mesh?.metadata?.unit));
+      const local = toCanvasLocalCoords(endX, endY);
+      const unitPick = scene.pick(local.x, local.y, (mesh) => Boolean(mesh?.metadata?.unit));
       const pickedUnit = unitPick?.hit ? unitPick.pickedMesh?.metadata?.unit : null;
 
       if (pickedUnit && pickedUnit.hp > 0) {
@@ -634,8 +648,11 @@ export function bootstrapGame() {
       const minY = Math.min(dragStart.y, endY);
       const maxY = Math.max(dragStart.y, endY);
 
+      const rect = canvas.getBoundingClientRect();
       const width = engine.getRenderWidth();
       const height = engine.getRenderHeight();
+      const scaleX = width > 0 && rect.width > 0 ? rect.width / width : 1;
+      const scaleY = height > 0 && rect.height > 0 ? rect.height / height : 1;
       const transformMatrix = scene.getTransformMatrix();
 
       for (const u of unitSystem.units || []) {
@@ -646,8 +663,8 @@ export function bootstrapGame() {
           width,
           height
         });
-        const sx = proj.x;
-        const sy = proj.y;
+        const sx = rect.left + proj.x * scaleX;
+        const sy = rect.top + proj.y * scaleY;
         const shouldSelect = u.team === state.activeTeam && sx >= minX && sx <= maxX && sy >= minY && sy <= maxY;
         if (u.selected !== shouldSelect) {
           u.selected = shouldSelect;
