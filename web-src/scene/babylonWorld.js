@@ -18,26 +18,26 @@ export function createBabylonWorld(canvas) {
     "cam",
     -Math.PI / 2,
     Math.PI / 4.2,
-    78,
+    115,
     BABYLON.Vector3.Zero(),
     scene
   );
   camera.attachControl(canvas, true);
   camera.lowerBetaLimit = 0.2;
   camera.upperBetaLimit = Math.PI / 2.25;
-  camera.lowerRadiusLimit = 12;
-  camera.upperRadiusLimit = 165;
+  camera.lowerRadiusLimit = 14;
+  camera.upperRadiusLimit = 240;
 
   new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
   const dirLight = new BABYLON.DirectionalLight("dir", new BABYLON.Vector3(-0.45, -1, -0.35), scene);
-  dirLight.position = new BABYLON.Vector3(25, 55, 25);
+  dirLight.position = new BABYLON.Vector3(38, 75, 38);
 
   // Outer linen backdrop
-  const backdrop = BABYLON.MeshBuilder.CreateGround("backdrop", { width: 320, height: 320, subdivisions: 2 }, scene);
+  const backdrop = BABYLON.MeshBuilder.CreateGround("backdrop", { width: 480, height: 480, subdivisions: 2 }, scene);
   backdrop.position.y = -0.18;
   const linenTex = new BABYLON.Texture("assets/Textures/Linen128x128.png", scene);
-  linenTex.uScale = 52;
-  linenTex.vScale = 52;
+  linenTex.uScale = 78;
+  linenTex.vScale = 78;
   const backdropMat = new BABYLON.StandardMaterial("backdropMat", scene);
   backdropMat.diffuseTexture = linenTex;
   backdropMat.diffuseColor = new BABYLON.Color3(0.72, 0.74, 0.78);
@@ -58,7 +58,7 @@ export function createBabylonWorld(canvas) {
 
   const rimRing = BABYLON.MeshBuilder.CreateTorus(
     "mapRim",
-    { diameter: MAP_DIAMETER, thickness: 0.32, tessellation: 96 },
+    { diameter: MAP_DIAMETER, thickness: 0.38, tessellation: 128 },
     scene
   );
   rimRing.position.y = 0.06;
