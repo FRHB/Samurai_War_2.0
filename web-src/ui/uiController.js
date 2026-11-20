@@ -544,9 +544,15 @@ export function bootstrapGame() {
   let savedCameraPanSensibility = camera.panningSensibility;
   const LONG_PRESS_MS = 320;
 
-  const setCameraPanningEnabled = (enabled) => {
+  // Disable camera panning whenever Shift is held, right-click is used, or any unit is selected
+  const refreshCameraPanLock = (e = null) => {
     if (!camera) return;
-    if (!enabled) {
+    const shiftPressed = Boolean(e?.shiftKey);
+    const rightButtonDown = e ? (e.button === 2 || (e.buttons & 2) === 2) : isRightBoxSelecting;
+    const hasSelectedUnit = (unitSystem?.getSelectedAliveUnits?.().length ?? 0) > 0;
+    const shouldLockPan = shiftPressed || rightButtonDown || hasSelectedUnit;
+
+    if (shouldLockPan) {
       if (camera.panningSensibility > 0) {
         savedCameraPanSensibility = camera.panningSensibility;
       }
@@ -573,6 +579,7 @@ export function bootstrapGame() {
   };
 
   window.addEventListener("keydown", (e) => {
+    refreshCameraPanLock(e);
     const tag = e.target?.tagName?.toLowerCase();
     if (tag === "input" || tag === "textarea" || tag === "select") return;
     if (e.key === "d" || e.key === "D") {
@@ -583,6 +590,10 @@ export function bootstrapGame() {
       };
       deployAtClientCoords(pos.x, pos.y);
     }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    refreshCameraPanLock(e);
   });
 
   const updateBox = () => {
@@ -601,12 +612,12 @@ export function bootstrapGame() {
 
   canvas.addEventListener("pointerdown", (e) => {
     lastPointerClientPos = { x: e.clientX, y: e.clientY };
+    refreshCameraPanLock(e);
     const pt = pickGround(e.clientX, e.clientY);
 
     // Right-click: select unit on a unit, deselect on empty space, or Shift+Right-Click drag for multi-group selection (without camera panning)
     if (e.button === 2) {
       if (e.shiftKey) {
-        setCameraPanningEnabled(false);
         isRightBoxSelecting = true;
         dragStart = { x: e.clientX, y: e.clientY };
         dragCurrent = { x: e.clientX, y: e.clientY };
@@ -618,10 +629,12 @@ export function bootstrapGame() {
       if (pickedUnit && pickedUnit.hp > 0) {
         unitSystem.clearSelection();
         unitSystem.setUnitSelected(pickedUnit, true);
+        refreshCameraPanLock(e);
         soundManager?.playSfx?.(soundManager?.sfx?.select);
         ui.setStatusMessage(`Selected ${pickedUnit.def.label} (Team ${pickedUnit.team}).`);
       } else {
         unitSystem.clearSelection();
+        refreshCameraPanLock(e);
         soundManager?.playSfx?.(soundManager?.sfx?.select);
         ui.setStatusMessage("Selection cleared.");
       }
@@ -654,6 +667,7 @@ export function bootstrapGame() {
 
   window.addEventListener("pointermove", (e) => {
     lastPointerClientPos = { x: e.clientX, y: e.clientY };
+    refreshCameraPanLock(e);
     const pt = pickGround(e.clientX, e.clientY);
     if (pt) {
       cursorRing?.setEnabled?.(true);
@@ -686,9 +700,6 @@ export function bootstrapGame() {
     }
 
     if (isRightBoxSelecting) {
-      if (!e.shiftKey) {
-        setCameraPanningEnabled(true);
-      }
       dragCurrent = { x: e.clientX, y: e.clientY };
       updateBox();
     }
@@ -714,17 +725,18 @@ export function bootstrapGame() {
       movePressTime = 0;
       moveLongPressActive = false;
       hideOrderArrow?.();
+      refreshCameraPanLock(e);
       return;
     }
 
     if (isEditorPainting) {
       isEditorPainting = false;
+      refreshCameraPanLock(e);
       return;
     }
 
     if (isRightBoxSelecting) {
       isRightBoxSelecting = false;
-      setCameraPanningEnabled(true);
       selectionBox.style.display = "none";
 
       if (dragStart) {
@@ -768,6 +780,8 @@ export function bootstrapGame() {
       dragStart = null;
       dragCurrent = null;
     }
+
+    refreshCameraPanLock(e);
   });
 
   let lastTime = performance.now();
@@ -776,6 +790,8 @@ export function bootstrapGame() {
     const rawDt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
     const simDt = rawDt * state.simSpeed;
+
+    refreshCameraPanLock();
 
     if (movePressStart && !moveLongPressActive && now - movePressTime >= LONG_PRESS_MS) {
       moveLongPressActive = true;
