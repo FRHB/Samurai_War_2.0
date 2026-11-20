@@ -150,8 +150,8 @@ export function createUnitSystem({
     for (let i = 0; i < unitDef.squadSize; i++) {
       const r = Math.floor(i / cols);
       const c = i % cols;
-      const lx = (c - (cols - 1) / 2) * 0.56;
-      const lz = 0.75 + r * 0.56;
+      const lx = (c - (cols - 1) / 2) * 0.65;
+      const lz = 0.85 + r * 0.65;
 
       const spriteCol = isMounted
         ? 5 + (i % 3)
@@ -161,9 +161,11 @@ export function createUnitSystem({
 
       const fallenCol = isMounted ? (i % 8) : (isHeavyInfantry ? 4 + (i % 4) : (i % 4));
 
-      const sm = createSpritePlane(`s_${i}`, spriteCol, aliveRow, isMounted ? 1.15 : 0.95, isMounted ? 1.15 : 1.05);
+      const spriteW = isMounted ? 1.45 : 1.25;
+      const spriteH = isMounted ? 1.45 : 1.35;
+      const sm = createSpritePlane(`s_${i}`, spriteCol, aliveRow, spriteW, spriteH);
       sm.parent = root;
-      sm.position.set(lx, 0.52, lz);
+      sm.position.set(lx, spriteH * 0.5 + 0.04, lz);
       sm.metadata = { aliveCol: spriteCol, aliveRow, fallenCol, fallenRow, fallen: false };
       soldiers.push(sm);
     }
