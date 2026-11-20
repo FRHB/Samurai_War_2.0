@@ -30,6 +30,9 @@ export function createUiController({
   const redCountEl = document.getElementById("redCount");
   const blueCountEl = document.getElementById("blueCount");
 
+  let selectedUnit = UNITS[0];
+  let selectedSizeOption = UNIT_SIZE_OPTIONS[0];
+
   if (mapSelect) {
     mapSelect.innerHTML = "";
     MAPS.forEach((m) => {
@@ -41,27 +44,61 @@ export function createUiController({
     mapSelect.value = MAPS[1]?.path || MAPS[0]?.path || "";
   }
 
+  // Deployment bar directly below the unit roster showing selected unit type + squad size selector
+  const deploySubBar = document.createElement("div");
+  deploySubBar.id = "deployFormationSubBar";
+  deploySubBar.className = "mt-1.5 flex items-center gap-2.5 bg-slate-900/90 text-slate-100 text-xs px-3 py-1.5 rounded border border-slate-700 w-fit";
+
+  const unitBadge = document.createElement("span");
+  unitBadge.id = "selectedUnitKindLabel";
+  unitBadge.className = "font-semibold text-amber-300";
+
+  const sizeLabel = document.createElement("label");
+  sizeLabel.htmlFor = "unitSizeSelect";
+  sizeLabel.className = "text-slate-300 font-medium";
+  sizeLabel.textContent = "Formation Size:";
+
   const sizeSelect = document.createElement("select");
   sizeSelect.id = "unitSizeSelect";
-  sizeSelect.className = "bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-medium px-2.5 py-1.5 rounded border border-slate-600 focus:outline-none";
+  sizeSelect.className = "bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-medium px-2.5 py-1 rounded border border-slate-600 focus:outline-none";
   UNIT_SIZE_OPTIONS.forEach((optDef) => {
     const opt = document.createElement("option");
     opt.value = String(optDef.soldiers);
     opt.textContent = optDef.label;
     sizeSelect.appendChild(opt);
   });
-  sizeSelect.value = String(UNIT_SIZE_OPTIONS[0].soldiers);
+  sizeSelect.value = String(selectedSizeOption.soldiers);
+
+  const syncDeploySubBar = () => {
+    unitBadge.textContent = `Unit: ${selectedUnit?.label || "Ashigaru"}`;
+  };
+  syncDeploySubBar();
+
   sizeSelect.addEventListener("change", () => {
-    onSelectUnitSize?.(Number(sizeSelect.value));
+    const count = Number(sizeSelect.value) || 10;
+    selectedSizeOption = UNIT_SIZE_OPTIONS.find((o) => o.soldiers === count) || {
+      id: "custom",
+      label: `Size (${count})`,
+      soldiers: count
+    };
+    syncDeploySubBar();
+    onSelectUnitSize?.(count);
     soundManager.playSfx(soundManager.sfx.select);
   });
 
-  if (actionDeployBtn?.parentElement) {
+  deploySubBar.appendChild(unitBadge);
+  deploySubBar.appendChild(sizeLabel);
+  deploySubBar.appendChild(sizeSelect);
+
+  if (unitRosterBar?.parentElement) {
+    unitRosterBar.parentElement.insertBefore(deploySubBar, unitRosterBar.nextSibling);
+  } else if (actionDeployBtn?.parentElement) {
     actionDeployBtn.parentElement.insertBefore(sizeSelect, actionDeployBtn);
   }
 
   let activeUnitBtn = null;
   if (unitRosterBar) {
+    unitRosterBar.innerHTML = "";
     UNITS.forEach((u, idx) => {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -71,6 +108,8 @@ export function createUiController({
         if (activeUnitBtn) activeUnitBtn.classList.remove("ring-2", "ring-amber-400", "bg-slate-700");
         activeUnitBtn = btn;
         btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+        selectedUnit = u;
+        syncDeploySubBar();
         onSelectUnitDef(u);
         soundManager.playSfx(soundManager.sfx.select);
       });
@@ -84,6 +123,7 @@ export function createUiController({
 
   let activeToolBtn = null;
   if (editorToolBar) {
+    editorToolBar.innerHTML = "";
     EDITOR_TOOLS.forEach((t, idx) => {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -114,6 +154,7 @@ export function createUiController({
     const isEditor = mode === "editor";
     editorToolBar?.classList.toggle("hidden", !isEditor);
     unitRosterBar?.classList.toggle("hidden", isEditor);
+    deploySubBar?.classList.toggle("hidden", isEditor);
   };
 
   setActiveModeButton("sandbox");
