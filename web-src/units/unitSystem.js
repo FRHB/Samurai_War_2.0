@@ -1,5 +1,7 @@
 import * as BABYLON from "@babylonjs/core";
 
+const DEAD_CLEANUP_DELAY = 1.6;
+
 export function createUnitSystem({
   scene,
   createSpritePlane,
@@ -75,6 +77,49 @@ export function createUnitSystem({
     combatEffects.push({ mesh: disc, ttl: 0.22 });
   };
 
+  const createHpBar = (root, team) => {
+    const barHolder = new BABYLON.TransformNode(`hpHolder_${Date.now()}_${Math.random()}`, scene);
+    barHolder.parent = root;
+    barHolder.position.set(0, 1.62, 0);
+    barHolder.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+
+    const width = 1.05;
+    const height = 0.11;
+
+    const bgMesh = BABYLON.MeshBuilder.CreatePlane("hpBg", { width, height }, scene);
+    bgMesh.parent = barHolder;
+    bgMesh.isPickable = false;
+    const bgMat = new BABYLON.StandardMaterial(`hpBgMat_${Date.now()}_${Math.random()}`, scene);
+    bgMat.diffuseColor = new BABYLON.Color3(0.08, 0.08, 0.1);
+    bgMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+    bgMat.backFaceCulling = false;
+    bgMesh.material = bgMat;
+
+    const fillMesh = BABYLON.MeshBuilder.CreatePlane("hpFill", { width: width - 0.04, height: height - 0.03 }, scene);
+    fillMesh.parent = barHolder;
+    fillMesh.position.z = -0.01;
+    fillMesh.isPickable = false;
+    const fillMat = new BABYLON.StandardMaterial(`hpFillMat_${Date.now()}_${Math.random()}`, scene);
+    fillMat.diffuseColor = team === 1 ? new BABYLON.Color3(0.92, 0.24, 0.24) : new BABYLON.Color3(0.24, 0.56, 0.96);
+    fillMat.emissiveColor = team === 1 ? new BABYLON.Color3(0.35, 0.08, 0.08) : new BABYLON.Color3(0.08, 0.2, 0.35);
+    fillMat.backFaceCulling = false;
+    fillMesh.material = fillMat;
+
+    return { barHolder, fillMesh, fillMat };
+  };
+
+  const updateHpBar = (unitObj) => {
+    if (!unitObj.hpBar) return;
+    const ratio = Math.max(0, Math.min(1, unitObj.hp / unitObj.maxHp));
+    unitObj.hpBar.fillMesh.scaling.x = Math.max(0.001, ratio);
+    unitObj.hpBar.fillMesh.position.x = -(1 - ratio) * 0.505;
+    if (ratio <= 0.3) {
+      unitObj.hpBar.fillMat.diffuseColor.set(0.95, 0.2, 0.15);
+    } else if (ratio <= 0.6) {
+      unitObj.hpBar.fillMat.diffuseColor.set(0.95, 0.72, 0.18);
+    }
+  };
+
   const spawnUnit = async (point, unitDef, team, activeOrder) => {
     const y = getGroundHeightAt(point.x, point.z);
     const root = new BABYLON.TransformNode(`unit_${unitDef.id}_${Date.now()}_${Math.random()}`, scene);
@@ -82,7 +127,7 @@ export function createUnitSystem({
 
     const plane = BABYLON.MeshBuilder.CreatePlane("marker", { size: 1.05 }, scene);
     plane.parent = root;
-    plane.rotation.x = Math.PI / 2.35;
+    plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
     plane.position.y = 1.05;
 
     const mat = new BABYLON.StandardMaterial(`mat_${unitDef.id}_${team}_${Date.now()}`, scene);
@@ -92,6 +137,8 @@ export function createUnitSystem({
     mat.backFaceCulling = false;
     mat.emissiveColor = new BABYLON.Color3(0.25, 0.25, 0.25);
     plane.material = mat;
+
+    const hpBar = createHpBar(root, team);
 
     const isMounted = unitDef.id === "cavalry" || unitDef.id === "general";
     const isHeavyInfantry = unitDef.id === "samurai" || unitDef.id === "katana" || unitDef.id === "naginata";
@@ -144,8 +191,10 @@ export function createUnitSystem({
       hold: activeOrder === "hold",
       fire: true,
       selected: false,
+      deadTimer: null,
       root,
       plane,
+      hpBar,
       soldiers,
       selRing
     };
@@ -158,6 +207,7 @@ export function createUnitSystem({
   const getSelectedAliveUnits = () => units.filter((u) => u.selected && u.hp > 0);
 
   const toggleUnitSelection = (unit) => {
+    if (unit.hp <= 0) return;
     unit.selected = !unit.selected;
     unit.selRing.setEnabled(unit.selected);
   };
@@ -198,11 +248,27 @@ export function createUnitSystem({
     return 1.0;
   };
 
+  const disposeUnitEntry = (unitObj) => {
+    unitObj.plane.metadata = null;
+    unitObj.root.dispose();
+  };
+
   const updateSimulation = (rawDt, dt) => {
     for (let i = combatEffects.length - 1; i >= 0; i--) {
       combatEffects[i].ttl -= rawDt;
       if (combatEffects[i].ttl <= 0) {
         combatEffects[i].mesh.dispose();
+      }
+    }
+
+    for (let i = units.length - 1; i >= 0; i--) {
+      const u = units[i];
+      if (u.hp <= 0 && u.deadTimer !== null) {
+        u.deadTimer -= rawDt;
+        if (u.deadTimer <= 0) {
+          disposeUnitEntry(u);
+          units.splice(i, 1);
+        }
       }
     }
 
@@ -236,7 +302,8 @@ export function createUnitSystem({
         const targetTerrain = getTerrainInfoAt(nearestEnemy.pos.x, nearestEnemy.pos.z);
         const defMult = u.def.ranged ? targetTerrain.rangedDefMult : 1.0;
         const dmg = u.def.dmg * tInfo.atkMult * getMatchupMultiplier(u, nearestEnemy) * defMult;
-        nearestEnemy.hp -= dmg;
+        nearestEnemy.hp = Math.max(0, nearestEnemy.hp - dmg);
+        updateHpBar(nearestEnemy);
         u.cooldown = u.def.cd;
         u.yaw = Math.atan2(nearestEnemy.pos.x - u.pos.x, nearestEnemy.pos.z - u.pos.z);
 
@@ -250,6 +317,11 @@ export function createUnitSystem({
         soundManager.playUnitAttackSfx(u.def.id);
 
         if (nearestEnemy.hp <= 0) {
+          nearestEnemy.selected = false;
+          nearestEnemy.deadTimer = DEAD_CLEANUP_DELAY;
+          nearestEnemy.plane.isPickable = false;
+          nearestEnemy.plane.metadata = null;
+          nearestEnemy.hpBar?.barHolder?.setEnabled?.(false);
           soundManager.playRandomCasualty();
           nearestEnemy.selRing.setEnabled(false);
           nearestEnemy.soldiers.forEach((s) => {
@@ -316,7 +388,7 @@ export function createUnitSystem({
   };
 
   const clearAllUnits = () => {
-    while (units.length) units.pop().root.dispose();
+    while (units.length) disposeUnitEntry(units.pop());
   };
 
   return {

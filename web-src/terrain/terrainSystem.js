@@ -1,10 +1,13 @@
 import * as BABYLON from "@babylonjs/core";
 import { MAP_RADIUS } from "../config/gameData.js";
 
+const EDITOR_STORAGE_KEY = "samuraiWars2_editorZones_v1";
+
 export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTerrainChanged }) {
   const terrainZones = [];
   const autoMapProps = [];
   let mapGrid = null;
+  let activeMapPath = null;
 
   const clearAutoProps = () => {
     while (autoMapProps.length) autoMapProps.pop().dispose();
@@ -68,7 +71,101 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
     return { type: "plains", label: "Plains (Normal)", speedMult: 1.0, rangedDefMult: 1.0, atkMult: 1.0 };
   };
 
+  const readAllSavedZones = () => {
+    try {
+      const raw = localStorage.getItem(EDITOR_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const persistEditorZones = () => {
+    if (!activeMapPath) return;
+    try {
+      const all = readAllSavedZones();
+      const serializable = terrainZones.map((z) => ({
+        kind: z.kind,
+        x: z.x,
+        z: z.z,
+        radius: z.radius,
+        color: z.color
+          ? { r: z.color.r, g: z.color.g, b: z.color.b }
+          : null
+      }));
+      if (serializable.length) {
+        all[activeMapPath] = serializable;
+      } else {
+        delete all[activeMapPath];
+      }
+      localStorage.setItem(EDITOR_STORAGE_KEY, JSON.stringify(all));
+    } catch {
+      // Ignore storage quota or private-mode errors
+    }
+  };
+
+  const buildFeatureMesh = (point, kind, radius, colorVal) => {
+    const baseY = getGroundHeightAt(point.x, point.z);
+    let mesh;
+    if (kind === "hills") {
+      mesh = BABYLON.MeshBuilder.CreateSphere(`hill_${Date.now()}_${Math.random()}`, { diameterX: radius * 2, diameterY: 2.1, diameterZ: radius * 2 }, scene);
+      mesh.position = new BABYLON.Vector3(point.x, baseY + 0.35, point.z);
+    } else if (kind === "trees") {
+      mesh = createSpritePlane(`editorTree_${Date.now()}_${Math.random()}`, Math.floor(Math.random() * 8), 0, 1.5, 1.5);
+      mesh.position = new BABYLON.Vector3(point.x, baseY + 0.72, point.z);
+    } else {
+      mesh = BABYLON.MeshBuilder.CreateDisc(`${kind}_${Date.now()}_${Math.random()}`, { radius, tessellation: 24 }, scene);
+      mesh.rotation.x = Math.PI / 2;
+      mesh.position = new BABYLON.Vector3(point.x, baseY + 0.05, point.z);
+    }
+
+    if (kind !== "trees") {
+      const mat = new BABYLON.StandardMaterial(`mat_${kind}_${Date.now()}_${Math.random()}`, scene);
+      const col = colorVal instanceof BABYLON.Color3
+        ? colorVal
+        : colorVal && typeof colorVal.r === "number"
+          ? new BABYLON.Color3(colorVal.r, colorVal.g, colorVal.b)
+          : new BABYLON.Color3(0.5, 0.5, 0.5);
+      mat.diffuseColor = col;
+      mat.alpha = kind === "water" || kind === "fords" ? 0.72 : 0.92;
+      mesh.material = mat;
+    }
+
+    return mesh;
+  };
+
+  const clearTerrainZones = ({ persist = true } = {}) => {
+    while (terrainZones.length) {
+      const zone = terrainZones.pop();
+      zone.mesh?.material?.dispose?.();
+      zone.mesh?.dispose?.();
+    }
+    if (persist) persistEditorZones();
+  };
+
+  const restoreSavedZonesForMap = (mapPath) => {
+    clearTerrainZones({ persist: false });
+    const all = readAllSavedZones();
+    const saved = Array.isArray(all[mapPath]) ? all[mapPath] : [];
+    for (const item of saved) {
+      if (!item || typeof item.x !== "number" || typeof item.z !== "number") continue;
+      const radius = typeof item.radius === "number" ? item.radius : (item.kind === "hills" ? 4.2 : item.kind === "water" ? 3.8 : 2.8);
+      const mesh = buildFeatureMesh({ x: item.x, z: item.z }, item.kind, radius, item.color);
+      terrainZones.push({
+        kind: item.kind,
+        x: item.x,
+        z: item.z,
+        radius,
+        color: item.color ? new BABYLON.Color3(item.color.r, item.color.g, item.color.b) : null,
+        mesh
+      });
+    }
+  };
+
   const buildTerrainFromMap = (mapPath) => {
+    activeMapPath = mapPath;
     clearAutoProps();
     const img = new Image();
     img.src = mapPath;
@@ -179,44 +276,35 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
         prevTex.dispose();
       }
 
+      restoreSavedZonesForMap(mapPath);
       onTerrainChanged?.();
     };
   };
 
   const spawnTerrainFeature = (point, tool) => {
     const radius = tool.id === "hills" ? 4.2 : tool.id === "water" ? 3.8 : 2.8;
-    let mesh;
-    if (tool.id === "hills") {
-      mesh = BABYLON.MeshBuilder.CreateSphere(`hill_${Date.now()}`, { diameterX: radius * 2, diameterY: 2.1, diameterZ: radius * 2 }, scene);
-      mesh.position = new BABYLON.Vector3(point.x, point.y + 0.35, point.z);
-    } else if (tool.id === "trees") {
-      mesh = createSpritePlane(`editorTree_${Date.now()}`, Math.floor(Math.random() * 8), 0, 1.5, 1.5);
-      mesh.position = new BABYLON.Vector3(point.x, point.y + 0.72, point.z);
-    } else {
-      mesh = BABYLON.MeshBuilder.CreateDisc(`${tool.id}_${Date.now()}`, { radius, tessellation: 24 }, scene);
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position = new BABYLON.Vector3(point.x, point.y + 0.05, point.z);
-    }
-    if (tool.id !== "trees") {
-      const mat = new BABYLON.StandardMaterial(`mat_${tool.id}`, scene);
-      mat.diffuseColor = tool.color;
-      mat.alpha = tool.id === "water" || tool.id === "fords" ? 0.72 : 0.92;
-      mesh.material = mat;
-    }
-    terrainZones.push({ kind: tool.id, x: point.x, z: point.z, radius, mesh });
+    const mesh = buildFeatureMesh(point, tool.id, radius, tool.color);
+    terrainZones.push({
+      kind: tool.id,
+      x: point.x,
+      z: point.z,
+      radius,
+      color: tool.color ?? null,
+      mesh
+    });
+    persistEditorZones();
   };
 
   const eraseTerrainFeatureAtMesh = (pickedMesh) => {
     const idx = terrainZones.findIndex((z) => z.mesh === pickedMesh);
     if (idx >= 0) {
-      terrainZones.splice(idx, 1)[0].mesh.dispose();
+      const removed = terrainZones.splice(idx, 1)[0];
+      removed.mesh?.material?.dispose?.();
+      removed.mesh?.dispose?.();
+      persistEditorZones();
       return true;
     }
     return false;
-  };
-
-  const clearTerrainZones = () => {
-    while (terrainZones.length) terrainZones.pop().mesh.dispose();
   };
 
   return {
