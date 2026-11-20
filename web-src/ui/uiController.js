@@ -538,8 +538,11 @@ export function bootstrapGame() {
   let isEditorPainting = false;
   let dragStart = null;
   let dragCurrent = null;
-  let moveAimStart = null;
+  let movePressStart = null;
+  let movePressTime = 0;
+  let moveLongPressActive = false;
   let savedCameraPanSensibility = camera.panningSensibility;
+  const LONG_PRESS_MS = 320;
 
   const setCameraPanningEnabled = (enabled) => {
     if (!camera) return;
@@ -641,10 +644,11 @@ export function bootstrapGame() {
       return;
     }
 
-    // Left-click: move currently selected unit(s) to clicked map location
+    // Left-click: move currently selected unit(s) to clicked map location; long-press sets facing direction toward where it goes
     if (unitSystem.getSelectedAliveUnits().length > 0 && pt) {
-      moveAimStart = pt.clone();
-      updateOrderArrow?.(moveAimStart, pt);
+      movePressStart = pt.clone();
+      movePressTime = performance.now();
+      moveLongPressActive = false;
     }
   });
 
@@ -664,8 +668,13 @@ export function bootstrapGame() {
       cursorRing?.setEnabled?.(false);
     }
 
-    if (moveAimStart && pt) {
-      updateOrderArrow?.(moveAimStart, pt);
+    if (movePressStart && pt) {
+      const heldLongEnough = performance.now() - movePressTime >= LONG_PRESS_MS;
+      const movedEnough = Math.hypot(pt.x - movePressStart.x, pt.z - movePressStart.z) > 0.6;
+      if (heldLongEnough || movedEnough) {
+        moveLongPressActive = true;
+        updateOrderArrow?.(movePressStart, pt);
+      }
       return;
     }
 
@@ -686,15 +695,24 @@ export function bootstrapGame() {
   });
 
   window.addEventListener("pointerup", (e) => {
-    if (moveAimStart) {
-      const endPt = pickGround(e.clientX, e.clientY) || moveAimStart;
-      const dx = endPt.x - moveAimStart.x;
-      const dz = endPt.z - moveAimStart.z;
-      const aimAngle = Math.hypot(dx, dz) > 0.6 ? Math.atan2(dx, dz) : null;
-      unitSystem.commandSelectedMoveTo(moveAimStart, aimAngle);
+    if (movePressStart) {
+      const endPt = pickGround(e.clientX, e.clientY) || movePressStart;
+      const dx = endPt.x - movePressStart.x;
+      const dz = endPt.z - movePressStart.z;
+      const wasLongPress = moveLongPressActive || (performance.now() - movePressTime >= LONG_PRESS_MS);
+      const aimAngle = wasLongPress && Math.hypot(dx, dz) > 0.25
+        ? Math.atan2(dx, dz)
+        : null;
+      unitSystem.commandSelectedMoveTo(movePressStart, aimAngle);
       soundManager?.playSfx?.(soundManager?.sfx?.move);
-      ui.setStatusMessage("Selected unit(s) ordered to move to target location.");
-      moveAimStart = null;
+      ui.setStatusMessage(
+        wasLongPress
+          ? "Selected formation ordered to march & face long-press direction."
+          : "Selected formation ordered to march to target."
+      );
+      movePressStart = null;
+      movePressTime = 0;
+      moveLongPressActive = false;
       hideOrderArrow?.();
       return;
     }
@@ -759,6 +777,12 @@ export function bootstrapGame() {
     lastTime = now;
     const simDt = rawDt * state.simSpeed;
 
+    if (movePressStart && !moveLongPressActive && now - movePressTime >= LONG_PRESS_MS) {
+      moveLongPressActive = true;
+      const curPt = lastPointerClientPos ? pickGround(lastPointerClientPos.x, lastPointerClientPos.y) : null;
+      updateOrderArrow?.(movePressStart, curPt || movePressStart);
+    }
+
     const counts = unitSystem.updateSimulation(rawDt, simDt);
     ui.updateHud({
       redCount: counts?.redCount ?? unitSystem.getAliveCount(1),
@@ -773,5 +797,5 @@ export function bootstrapGame() {
   });
 
   terrainSystem.buildTerrainFromMap(ui.getSelectedMapPath());
-  ui.setStatusMessage("Right-click unit to select, click empty space to deselect, Shift+Right-Click for multi-select, D to deploy, left-click map to move.");
+  ui.setStatusMessage("Right-click unit to select, click empty space to deselect, Shift+Right-Click for multi-select, D to deploy, left-click map to move (long-press to set facing).");
 }
