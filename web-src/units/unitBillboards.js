@@ -2,37 +2,31 @@ import * as BABYLON from "@babylonjs/core";
 
 // Single source of truth for per-unit billboard dimensions, ground offset, and canvas size
 export const UNIT_BILLBOARD_SPECS = Object.freeze({
-  ashigaru: { width: 0.76, height: 0.84, yOffset: 0.43, canvasSize: 192 },
-  bow: { width: 0.76, height: 0.84, yOffset: 0.43, canvasSize: 192 },
-  matchlock: { width: 0.78, height: 0.85, yOffset: 0.435, canvasSize: 192 },
-  yari: { width: 0.8, height: 0.88, yOffset: 0.45, canvasSize: 192 },
-  naginata: { width: 0.8, height: 0.88, yOffset: 0.45, canvasSize: 192 },
-  katana: { width: 0.78, height: 0.86, yOffset: 0.44, canvasSize: 192 },
-  samurai: { width: 0.82, height: 0.9, yOffset: 0.46, canvasSize: 192 },
-  cavalry: { width: 0.96, height: 0.94, yOffset: 0.48, canvasSize: 192 },
-  general: { width: 1.0, height: 0.98, yOffset: 0.5, canvasSize: 192 },
-  cannon: { width: 0.92, height: 0.78, yOffset: 0.4, canvasSize: 192 }
+  ashigaru: { width: 0.76, height: 0.84, yOffset: 0.445, canvasSize: 192 },
+  bow: { width: 0.76, height: 0.84, yOffset: 0.445, canvasSize: 192 },
+  matchlock: { width: 0.78, height: 0.85, yOffset: 0.45, canvasSize: 192 },
+  yari: { width: 0.8, height: 0.88, yOffset: 0.465, canvasSize: 192 },
+  naginata: { width: 0.8, height: 0.88, yOffset: 0.465, canvasSize: 192 },
+  katana: { width: 0.78, height: 0.86, yOffset: 0.455, canvasSize: 192 },
+  samurai: { width: 0.82, height: 0.9, yOffset: 0.475, canvasSize: 192 },
+  cavalry: { width: 0.96, height: 0.94, yOffset: 0.495, canvasSize: 192 },
+  general: { width: 1.0, height: 0.98, yOffset: 0.515, canvasSize: 192 },
+  cannon: { width: 0.92, height: 0.78, yOffset: 0.415, canvasSize: 192 }
 });
 
 const DEFAULT_BILLBOARD_SPEC = Object.freeze({
   width: 0.78,
   height: 0.84,
-  yOffset: 0.43,
+  yOffset: 0.445,
   canvasSize: 192
 });
 
-export function getUnitBillboardSpec(unitId, formationCount = 10) {
+export function getUnitBillboardSpec(unitId) {
   const base = UNIT_BILLBOARD_SPECS[unitId] || DEFAULT_BILLBOARD_SPEC;
-  const count = Math.max(1, Number(formationCount) || 10);
-  const scaleFactor = count >= 250 ? 0.68 : count >= 100 ? 0.78 : 1.0;
-  const width = Number((base.width * scaleFactor).toFixed(3));
-  const height = Number((base.height * scaleFactor).toFixed(3));
-  const yOffset = Number((height * 0.5 + 0.025).toFixed(3));
-
   return {
-    width,
-    height,
-    yOffset,
+    width: base.width,
+    height: base.height,
+    yOffset: base.yOffset,
     canvasSize: base.canvasSize
   };
 }
@@ -296,7 +290,7 @@ export function createUnitBillboardAtlas(scene) {
   };
 
   const renderCanvasFor = (unitId, team, state, externalImg = null) => {
-    const spec = getUnitBillboardSpec(unitId, 10);
+    const spec = getUnitBillboardSpec(unitId);
     const s = spec.canvasSize;
     const canvas = document.createElement("canvas");
     canvas.width = s;
