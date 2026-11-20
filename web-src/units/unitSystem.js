@@ -223,6 +223,14 @@ export function createUnitSystem({
     return 25;
   };
 
+  const getFormationSpacing = (unitDef, soldierCount) => {
+    const spec = getUnitBillboardSpec(unitDef.id);
+    const count = Math.max(1, Number(soldierCount) || 10);
+    // Keep rows & columns clearly separated even for larger counts while staying compact
+    const scaleFactor = count >= 250 ? 1.12 : count >= 50 ? 1.18 : 1.25;
+    return Number(Math.max(spec.width * scaleFactor, 0.98).toFixed(3));
+  };
+
   // Each soldier is spawned as an independent world entity with its own position, HP, and combat state
   const createSoldierEntity = (unitObj, unitDef, team, idx, worldX, worldZ, slotOffsetX, slotOffsetZ) => {
     const perSoldierHp = unitDef.hp ?? 50;
@@ -281,7 +289,7 @@ export function createUnitSystem({
 
     const cols = resolveUniformColumns(count);
     const rows = Math.ceil(count / cols);
-    const spacing = Number(Math.max(spec.width * 1.15, 0.92).toFixed(3));
+    const spacing = getFormationSpacing(unitDef, count);
 
     const entities = [];
     for (let i = 0; i < count; i++) {
@@ -422,11 +430,40 @@ export function createUnitSystem({
     }
   };
 
+  const assignRowColFormationTargets = (unitObj, destX, destZ, facingYaw) => {
+    const aliveEnts = unitObj.entities.filter((e) => e.alive && e.hp > 0);
+    if (!aliveEnts.length) return;
+
+    const cols = resolveUniformColumns(aliveEnts.length);
+    const rows = Math.ceil(aliveEnts.length / cols);
+    const spacing = getFormationSpacing(unitObj.def, aliveEnts.length);
+    const cosY = Math.cos(facingYaw);
+    const sinY = Math.sin(facingYaw);
+
+    aliveEnts.forEach((ent, idx) => {
+      const r = Math.floor(idx / cols);
+      const c = idx % cols;
+      const lx = aliveEnts.length === 1 ? 0 : (c - (cols - 1) / 2) * spacing;
+      const lz = aliveEnts.length === 1 ? 0 : (r - (rows - 1) / 2) * spacing;
+      ent.offsetX = lx;
+      ent.offsetZ = lz;
+
+      const rotX = lx * cosY + lz * sinY;
+      const rotZ = -lx * sinY + lz * cosY;
+      ent.targetPos = new BABYLON.Vector3(
+        destX + rotX,
+        getGroundHeightAt(destX + rotX, destZ + rotZ),
+        destZ + rotZ
+      );
+      ent.yaw = facingYaw;
+    });
+  };
+
   const commandSelectedMoveTo = (centerPt, aimAngle = null) => {
     const selectedList = getSelectedAliveUnits();
     if (!selectedList.length) return;
     const cols = Math.ceil(Math.sqrt(selectedList.length));
-    const spacing = aimAngle === null ? 2.8 : 3.1;
+    const spacing = aimAngle === null ? 3.2 : 3.5;
     const rowsCount = Math.ceil(selectedList.length / cols);
 
     selectedList.forEach((u, i) => {
@@ -444,36 +481,20 @@ export function createUnitSystem({
       u.hold = false;
       if (u.order === "halt") u.order = "walk";
       u.yaw = moveAngle;
+      u.arrivedFormationReady = false;
 
-      const cosY = Math.cos(moveAngle);
-      const sinY = Math.sin(moveAngle);
-
-      for (const ent of u.entities) {
-        if (!ent.alive) continue;
-        const baseOx = ent.offsetX ?? 0;
-        const baseOz = ent.offsetZ ?? 0;
-        // Rotate slot offset by facing angle so formation shape stays oriented along the advance direction
-        const rotX = baseOx * cosY + baseOz * sinY;
-        const rotZ = -baseOx * sinY + baseOz * cosY;
-        ent.targetPos = new BABYLON.Vector3(
-          destX + rotX,
-          ent.pos.y,
-          destZ + rotZ
-        );
-        ent.yaw = moveAngle;
-      }
+      assignRowColFormationTargets(u, destX, destZ, moveAngle);
     });
   };
 
-  // Reform surviving soldiers into their own formation around their post-battle anchor
+  // Reform surviving soldiers into their own rows & columns around their post-battle anchor
   const reformUnitFormation = (unitObj, anchorX, anchorZ, facingYaw, snapInPlace = false) => {
     const aliveEnts = unitObj.entities.filter((e) => e.alive && e.hp > 0);
     if (!aliveEnts.length) return;
 
-    const spec = getUnitBillboardSpec(unitObj.def.id);
     const cols = resolveUniformColumns(aliveEnts.length);
     const rows = Math.ceil(aliveEnts.length / cols);
-    const spacing = Number(Math.max(spec.width * 1.15, 0.92).toFixed(3));
+    const spacing = getFormationSpacing(unitObj.def, aliveEnts.length);
     const cosY = Math.cos(facingYaw);
     const sinY = Math.sin(facingYaw);
 
@@ -580,7 +601,7 @@ export function createUnitSystem({
     ent.mesh.scaling.set(scaleBoost, scaleBoost, 1.0);
   };
 
-  // Individual soldier-level combat & progression with forward-only front sight cones and out-of-battle formation cohesion
+  // Individual soldier-level combat & progression with forward-only front sight cones and row/column destination alignment
   const updateSimulation = (rawDt, dt) => {
     simFrameCounter++;
     for (let i = combatEffects.length - 1; i >= 0; i--) {
@@ -747,22 +768,28 @@ export function createUnitSystem({
         const dx = moveDest.x - ent.pos.x;
         const dz = moveDest.z - ent.pos.z;
         const dist = Math.hypot(dx, dz);
-        if (dist > 0.35) {
+        if (dist > 0.14) {
           isMoving = true;
           const moraleSpeedMult = ent.morale < 25 ? 0.75 : 1.0;
           const runMult = u.order === "run" ? 1.65 : 1.0;
           const step = Math.min(dist, u.def.speed * runMult * tInfo.speedMult * moraleSpeedMult * dt);
           ent.pos.x += (dx / dist) * step;
           ent.pos.z += (dz / dist) * step;
-          ent.yaw = Math.atan2(dx, dz);
+          if (!ent.targetPos) {
+            ent.yaw = Math.atan2(dx, dz);
+          }
         } else if (ent.targetPos) {
+          ent.pos.x = ent.targetPos.x;
+          ent.pos.z = ent.targetPos.z;
           ent.targetPos = null;
+          ent.yaw = u.yaw;
         }
       }
 
-      // Soldier-to-soldier spacing so allies keep formation gaps and opposing fighters keep readable melee/ranged gaps
+      // Apply light soldier separation while marching to a slot, and crisp row/column alignment once at destination
       const sepStride = soldierCount > 350 ? 2 : 1;
-      if ((i + simFrameCounter) % sepStride === 0) {
+      const shouldSeparate = u.inBattleThisTick || Boolean(ent.targetPos);
+      if (shouldSeparate && (i + simFrameCounter) % sepStride === 0) {
         for (let j = i + 1; j < soldierCount; j++) {
           const otherEnt = allAliveSoldiers[j];
           const sdx = ent.pos.x - otherEnt.pos.x;
@@ -773,7 +800,7 @@ export function createUnitSystem({
           const desiredGapSq = sameTeam ? minSameTeamSepSq : minEnemyMeleeGapSq;
           if (sdistSq > 0.000001 && sdistSq < desiredGapSq) {
             const sdist = Math.sqrt(sdistSq);
-            const push = (desiredGap - sdist) * (sameTeam ? 1.6 : 1.25) * dt;
+            const push = (desiredGap - sdist) * (sameTeam ? 1.35 : 1.25) * dt;
             const nx = (sdx / sdist) * push;
             const nz = (sdz / sdist) * push;
             ent.pos.x += nx;
@@ -816,9 +843,21 @@ export function createUnitSystem({
       u.root.position.copyFrom(u.pos);
       u.root.rotation.y = u.yaw;
 
-      // When out of battle and not marching on an explicit order, maintain strict formation slots around anchor
-      const hasActiveMarchOrder = Boolean(u.targetPos) || aliveEnts.some((e) => Boolean(e.targetPos));
-      if (!u.inBattleThisTick && !hasActiveMarchOrder) {
+      const anySoldierStillMovingToSlot = aliveEnts.some((e) => Boolean(e.targetPos));
+      if (u.targetPos && !anySoldierStillMovingToSlot) {
+        const anchorX = u.targetPos.x;
+        const anchorZ = u.targetPos.z;
+        u.targetPos = null;
+        if (!u.arrivedFormationReady) {
+          u.arrivedFormationReady = true;
+          reformUnitFormation(u, anchorX, anchorZ, u.yaw, true);
+          u.pos.set(anchorX, getGroundHeightAt(anchorX, anchorZ), anchorZ);
+          u.root.position.copyFrom(u.pos);
+          for (const e of aliveEnts) {
+            updateSoldierVisual(u, e, rawDt, dt, false, false);
+          }
+        }
+      } else if (!u.inBattleThisTick && !anySoldierStillMovingToSlot) {
         if (u.needsReform || simFrameCounter % 4 === 0) {
           u.needsReform = false;
           reformUnitFormation(u, cx, cz, u.yaw, true);
