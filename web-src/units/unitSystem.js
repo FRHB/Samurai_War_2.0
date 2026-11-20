@@ -3,6 +3,7 @@ import { createUnitBillboardAtlas, getUnitBillboardSpec } from "./unitBillboards
 
 const DEAD_CLEANUP_DELAY = 1.6;
 const FRONT_CONE_HALF_ANGLE = (55 * Math.PI) / 180;
+const PROXIMITY_REACTION_RADIUS = 3.2;
 const FORMATION_COLUMNS_BY_SIZE = Object.freeze({
   10: 5,
   50: 10,
@@ -42,19 +43,13 @@ export function createUnitSystem({
     return delta <= halfAngle;
   };
 
-  // Clear line-of-sight check between attacker and target so trees/hills/water don't block ranged shots
-  // and enemies outside the forward sight cone are never located or engaged in 360°
-  const hasRangedLineOfSight = (unitObj, fromX, fromZ, facingYaw, toX, toZ, maxRange) => {
+  const hasClearLineOfSight = (unitObj, fromX, fromZ, toX, toZ) => {
+    // Cannons fire elevated arcs; bow/matchlock check intermediate tree cover along the sightline
+    if (unitObj?.def?.id === "cannon") return true;
     const dx = toX - fromX;
     const dz = toZ - fromZ;
     const dist = Math.hypot(dx, dz);
-    if (dist <= 0.0001 || dist > maxRange) return false;
-    if (!isInFrontSightCone(fromX, fromZ, facingYaw, toX, toZ, FRONT_CONE_HALF_ANGLE)) {
-      return false;
-    }
-
-    // Cannons fire elevated arcs; bow/matchlock check intermediate terrain obstacles along the sightline
-    if (unitObj?.def?.id === "cannon") return true;
+    if (dist <= 0.0001) return true;
 
     const steps = Math.max(3, Math.min(14, Math.ceil(dist / 1.5)));
     for (let s = 1; s < steps; s++) {
@@ -104,7 +99,7 @@ export function createUnitSystem({
     combatEffects.push({ mesh: slash, ttl: 0.18, startScale: 1, isFlash: true });
   };
 
-  // Small light facing arrow highlight attached to a soldier mesh indicating which way they face
+  // Small light facing arrow highlight shown on selected soldiers indicating which way they face
   const createSoldierFacingArrow = (soldierMesh, team, spec) => {
     const isRed = team === 1;
     const arrowColor = isRed
@@ -128,6 +123,7 @@ export function createUnitSystem({
     arrow.rotation.x = Math.PI / 2;
     arrow.position.set(0, -(spec?.height ?? 0.84) * 0.44, arrowLen * 0.65);
     arrow.isPickable = false;
+    arrow.setEnabled(false);
 
     const mat = new BABYLON.StandardMaterial(`facingArrowMat_${soldierMesh.name}`, scene);
     mat.diffuseColor = arrowColor;
@@ -138,6 +134,14 @@ export function createUnitSystem({
 
     arrow.onDisposeObservable.add(() => mat.dispose());
     return arrow;
+  };
+
+  const syncUnitFacingArrows = (unitObj) => {
+    const showArrows = Boolean(unitObj.selected && unitObj.hp > 0);
+    for (const ent of unitObj.entities || []) {
+      if (!ent.facingArrow || ent.facingArrow.isDisposed()) continue;
+      ent.facingArrow.setEnabled(showArrows && Boolean(ent.alive));
+    }
   };
 
   // Forward-facing sight/range arc outline for ranged units (bow, matchlock, cannon)
@@ -458,6 +462,7 @@ export function createUnitSystem({
     if (!unit || unit.hp <= 0) return;
     unit.selected = Boolean(selected);
     unit.selRing?.setEnabled?.(unit.selected);
+    syncUnitFacingArrows(unit);
     updateRangeOutline(unit, getTerrainInfoAt(unit.pos.x, unit.pos.z));
   };
 
@@ -466,6 +471,7 @@ export function createUnitSystem({
       if (u.selected) {
         u.selected = false;
         u.selRing?.setEnabled?.(false);
+        syncUnitFacingArrows(u);
         updateRangeOutline(u, getTerrainInfoAt(u.pos.x, u.pos.z));
       }
     }
@@ -553,7 +559,7 @@ export function createUnitSystem({
     });
   };
 
-  // Reform surviving soldiers into their own rows & columns around their post-battle anchor
+  // Smoothly assign row & column formation slots so soldiers walk/march into formation rather than teleporting
   const reformUnitFormation = (unitObj, anchorX, anchorZ, facingYaw, snapInPlace = false) => {
     const aliveEnts = unitObj.entities.filter((e) => e.alive && e.hp > 0);
     if (!aliveEnts.length) return;
@@ -582,7 +588,7 @@ export function createUnitSystem({
         ent.pos.z = slotZ;
         ent.targetPos = null;
       } else {
-        ent.targetPos = new BABYLON.Vector3(slotX, ent.pos.y, slotZ);
+        ent.targetPos = new BABYLON.Vector3(slotX, getGroundHeightAt(slotX, slotZ), slotZ);
       }
       ent.yaw = facingYaw;
     });
@@ -666,10 +672,86 @@ export function createUnitSystem({
     ent.mesh.rotation.z = tilt;
     const scaleBoost = isAttacking && ent.attackTimer > 0 ? 1.15 : 1.0;
     ent.mesh.scaling.set(scaleBoost, scaleBoost, 1.0);
-    ent.facingArrow?.setEnabled?.(true);
+    ent.facingArrow?.setEnabled?.(Boolean(unitObj.selected));
   };
 
-  // Individual soldier-level combat & progression with forward-only front sight cones and ranged line of sight
+  // Locate nearest enemy in front line-of-sight, or react to a close-range enemy outside sight cone
+  const findTargetForSoldier = (ent, allAliveSoldiers, idx, sightRange, effectiveRange) => {
+    const u = ent.unit;
+    const maxSightSq = sightRange * sightRange;
+    const maxRangeSq = effectiveRange * effectiveRange;
+    const proximitySq = PROXIMITY_REACTION_RADIUS * PROXIMITY_REACTION_RADIUS;
+
+    let bestInSightEnemy = null;
+    let bestInSightDistSq = Infinity;
+
+    let bestCloseEnemy = null;
+    let bestCloseDistSq = Infinity;
+
+    for (let j = 0; j < allAliveSoldiers.length; j++) {
+      if (idx === j) continue;
+      const otherEnt = allAliveSoldiers[j];
+      if (otherEnt.team === ent.team) continue;
+
+      const ddx = otherEnt.pos.x - ent.pos.x;
+      const ddz = otherEnt.pos.z - ent.pos.z;
+      const dSq = ddx * ddx + ddz * ddz;
+
+      const inFront = isInFrontSightCone(ent.pos.x, ent.pos.z, ent.yaw, otherEnt.pos.x, otherEnt.pos.z, FRONT_CONE_HALF_ANGLE);
+      const clearLos = hasClearLineOfSight(u, ent.pos.x, ent.pos.z, otherEnt.pos.x, otherEnt.pos.z);
+
+      if (inFront && clearLos && dSq <= maxSightSq && dSq < bestInSightDistSq) {
+        bestInSightDistSq = dSq;
+        bestInSightEnemy = otherEnt;
+      }
+
+      // React if an enemy approaches right near the soldier even outside its current front line of sight
+      if (dSq <= proximitySq && dSq < bestCloseDistSq) {
+        bestCloseDistSq = dSq;
+        bestCloseEnemy = otherEnt;
+      }
+    }
+
+    if (bestInSightEnemy) {
+      const dist = Math.sqrt(bestInSightDistSq);
+      const withinAttackRange = u.def.ranged ? bestInSightDistSq <= maxRangeSq : dist <= Math.max(effectiveRange, 2.2);
+      return {
+        enemy: bestInSightEnemy,
+        dist,
+        canAttackNow: withinAttackRange && clearLineOfSightCheck(u, ent, bestInSightEnemy),
+        isProximityReaction: false
+      };
+    }
+
+    if (bestCloseEnemy) {
+      const dist = Math.sqrt(bestCloseDistSq);
+      const canMeleeClose = !u.def.ranged && dist <= Math.max(effectiveRange, PROXIMITY_REACTION_RADIUS * 0.65);
+      return {
+        enemy: bestCloseEnemy,
+        dist,
+        canAttackNow: canMeleeClose,
+        isProximityReaction: true
+      };
+    }
+
+    return {
+      enemy: null,
+      dist: Infinity,
+      canAttackNow: false,
+      isProximityReaction: false
+    };
+  };
+
+  const clearLineOfSightCheck = (unitObj, attackerEnt, defenderEnt) =>
+    hasClearLineOfSight(
+      unitObj,
+      attackerEnt.pos.x,
+      attackerEnt.pos.z,
+      defenderEnt.pos.x,
+      defenderEnt.pos.z
+    );
+
+  // Individual soldier-level combat & progression with smooth reformation, selected facing arrows, and proximity awareness
   const updateSimulation = (rawDt, dt) => {
     simFrameCounter++;
     for (let i = combatEffects.length - 1; i >= 0; i--) {
@@ -716,7 +798,7 @@ export function createUnitSystem({
     const minEnemyMeleeGap = 1.18;
     const minEnemyMeleeGapSq = minEnemyMeleeGap * minEnemyMeleeGap;
 
-    // 1. Advance each alive soldier & resolve engagements within front sight cone and ranged line of sight
+    // 1. Advance each alive soldier & resolve engagements
     for (let i = 0; i < soldierCount; i++) {
       const ent = allAliveSoldiers[i];
       const u = ent.unit;
@@ -725,39 +807,20 @@ export function createUnitSystem({
       const tInfo = getTerrainInfoAt(ent.pos.x, ent.pos.z);
       const sightRange = tInfo.type === "trees" ? u.sightRange * 0.7 : u.sightRange;
       const effectiveRange = tInfo.type === "hills" && u.def.ranged ? u.def.range * 1.15 : u.def.range;
-      const maxLocateRange = u.def.ranged ? Math.min(sightRange, effectiveRange) : sightRange;
-      const maxLocateRangeSq = maxLocateRange * maxLocateRange;
 
-      let nearestEnemyEnt = null;
-      let nearestEnemyDistSq = Infinity;
-
-      for (let j = 0; j < soldierCount; j++) {
-        if (i === j) continue;
-        const otherEnt = allAliveSoldiers[j];
-        if (otherEnt.team === ent.team) continue;
-        const ddx = otherEnt.pos.x - ent.pos.x;
-        const ddz = otherEnt.pos.z - ent.pos.z;
-        const dSq = ddx * ddx + ddz * ddz;
-        if (dSq > maxLocateRangeSq || dSq >= nearestEnemyDistSq) continue;
-
-        // Enforce front sight cone and ranged line-of-sight so enemies outside front sight are never located in 360°
-        if (!hasRangedLineOfSight(u, ent.pos.x, ent.pos.z, ent.yaw, otherEnt.pos.x, otherEnt.pos.z, maxLocateRange)) {
-          continue;
-        }
-
-        nearestEnemyDistSq = dSq;
-        nearestEnemyEnt = otherEnt;
-      }
-
-      const nearestDist = nearestEnemyEnt ? Math.sqrt(nearestEnemyDistSq) : Infinity;
-      const inFrontRange = nearestEnemyEnt
-        && nearestDist <= effectiveRange
-        && hasRangedLineOfSight(u, ent.pos.x, ent.pos.z, ent.yaw, nearestEnemyEnt.pos.x, nearestEnemyEnt.pos.z, effectiveRange);
-      const canAttack = inFrontRange && (!u.def.ranged || u.fire);
+      const targetInfo = findTargetForSoldier(ent, allAliveSoldiers, i, sightRange, effectiveRange);
+      const nearestEnemyEnt = targetInfo.enemy;
+      const nearestDist = targetInfo.dist;
+      const canAttack = targetInfo.canAttackNow && (!u.def.ranged || u.fire);
       let didAttack = false;
 
       if (canAttack) {
         u.inBattleThisTick = true;
+      }
+
+      // Turn toward a close enemy reacting near the soldier so it can face and engage it
+      if (nearestEnemyEnt && targetInfo.isProximityReaction) {
+        ent.yaw = Math.atan2(nearestEnemyEnt.pos.x - ent.pos.x, nearestEnemyEnt.pos.z - ent.pos.z);
       }
 
       if (canAttack && ent.cooldown <= 0) {
@@ -765,6 +828,7 @@ export function createUnitSystem({
         ent.wasEngaged = true;
         ent.attackTimer = 0.28;
         ent.cooldown = u.def.cd * (0.95 + ((ent.index % 5) * 0.08));
+        ent.yaw = Math.atan2(nearestEnemyEnt.pos.x - ent.pos.x, nearestEnemyEnt.pos.z - ent.pos.z);
 
         const targetTerrain = getTerrainInfoAt(nearestEnemyEnt.pos.x, nearestEnemyEnt.pos.z);
         const defMult = u.def.ranged ? targetTerrain.rangedDefMult : 1.0;
@@ -799,6 +863,7 @@ export function createUnitSystem({
             nearestEnemyEnt.unit.deadTimer = DEAD_CLEANUP_DELAY;
             nearestEnemyEnt.unit.hpBar?.barHolder?.setEnabled?.(false);
             nearestEnemyEnt.unit.selRing?.setEnabled?.(false);
+            syncUnitFacingArrows(nearestEnemyEnt.unit);
             if (nearestEnemyEnt.unit.rangeOutline?.ring) {
               nearestEnemyEnt.unit.rangeOutline.ring.setEnabled(false);
             }
@@ -810,7 +875,7 @@ export function createUnitSystem({
         }
       }
 
-      // Mark unit for formation reform whenever a previously engaged soldier has no enemy in front sight
+      // Mark unit for smooth formation reform whenever a previously engaged soldier has no enemy to fight
       if (!nearestEnemyEnt && ent.wasEngaged) {
         ent.wasEngaged = false;
         u.needsReform = true;
@@ -855,7 +920,7 @@ export function createUnitSystem({
         }
       }
 
-      // Apply light soldier separation while marching to a slot, and crisp row/column alignment once at destination
+      // Apply soldier separation while moving or fighting so soldiers walk smoothly into formation slots
       const sepStride = soldierCount > 350 ? 2 : 1;
       const shouldSeparate = u.inBattleThisTick || Boolean(ent.targetPos);
       if (shouldSeparate && (i + simFrameCounter) % sepStride === 0) {
@@ -919,22 +984,11 @@ export function createUnitSystem({
         u.targetPos = null;
         if (!u.arrivedFormationReady) {
           u.arrivedFormationReady = true;
-          reformUnitFormation(u, anchorX, anchorZ, u.yaw, true);
+          reformUnitFormation(u, anchorX, anchorZ, u.yaw, false);
           u.pos.set(anchorX, getGroundHeightAt(anchorX, anchorZ), anchorZ);
           u.root.position.copyFrom(u.pos);
-          for (const e of aliveEnts) {
-            updateSoldierVisual(u, e, rawDt, dt, false, false);
-          }
         }
-      } else if (!u.inBattleThisTick && !anySoldierStillMovingToSlot) {
-        if (u.needsReform || simFrameCounter % 4 === 0) {
-          u.needsReform = false;
-          reformUnitFormation(u, cx, cz, u.yaw, true);
-          for (const e of aliveEnts) {
-            updateSoldierVisual(u, e, rawDt, dt, false, false);
-          }
-        }
-      } else if (u.needsReform) {
+      } else if (!u.inBattleThisTick && !anySoldierStillMovingToSlot && u.needsReform) {
         u.needsReform = false;
         reformUnitFormation(u, cx, cz, u.yaw, false);
       }
