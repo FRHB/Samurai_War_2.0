@@ -1,5 +1,5 @@
 import * as BABYLON from "@babylonjs/core";
-import { EDITOR_TOOLS, UNITS } from "./config/gameData.js";
+import { EDITOR_TOOLS, UNITS, UNIT_SIZE_OPTIONS } from "../config/gameData.js";
 import { createSoundManager } from "./audio/audioManager.js";
 import { createBabylonWorld } from "./scene/babylonWorld.js";
 import { createTerrainSystem } from "./terrain/terrainSystem.js";
@@ -18,6 +18,7 @@ window.addEventListener("DOMContentLoaded", () => {
     activeOrder: "walk", // "halt" | "walk" | "run" | "hold" | "fire"
     simSpeed: 1,
     selectedUnitDef: UNITS[0],
+    selectedUnitSize: UNIT_SIZE_OPTIONS[0].soldiers,
     selectedEditorTool: EDITOR_TOOLS[1]
   };
 
@@ -48,6 +49,11 @@ window.addEventListener("DOMContentLoaded", () => {
     soundManager,
     onSelectUnitDef: (unitDef) => {
       state.selectedUnitDef = unitDef;
+      state.pointerAction = "deploy";
+      ui.syncActionButtons(state.pointerAction);
+    },
+    onSelectUnitSize: (soldierCount) => {
+      state.selectedUnitSize = Number(soldierCount) || 10;
       state.pointerAction = "deploy";
       ui.syncActionButtons(state.pointerAction);
     },
@@ -170,7 +176,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
       if (state.pointerAction === "deploy") {
         if (pick?.hit && pick.pickedPoint) {
-          unitSystem.spawnUnit(pick.pickedPoint, state.selectedUnitDef, state.activeTeam, state.activeOrder);
+          unitSystem.spawnUnit(
+            pick.pickedPoint,
+            state.selectedUnitDef,
+            state.activeTeam,
+            state.activeOrder,
+            state.selectedUnitSize
+          );
         }
       } else {
         const unitPick = world.scene.pick(

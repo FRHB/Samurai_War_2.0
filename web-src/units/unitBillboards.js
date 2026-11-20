@@ -3,287 +3,195 @@ import * as BABYLON from "@babylonjs/core";
 export function createUnitBillboardAtlas(scene) {
   const cache = new Map();
 
-  // Draws stylized Sengoku unit billboard textures per unit type, team, and state ("alive" | "fallen")
+  // Draws crisp, clean Sengoku soldier sprites (1 unit = 1 soldier) with minimal visual clutter
   const drawStyledUnitCanvas = (unitId, team, state) => {
     const canvas = document.createElement("canvas");
-    canvas.width = 160;
-    canvas.height = 160;
+    canvas.width = 128;
+    canvas.height = 128;
     const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, 160, 160);
+    ctx.clearRect(0, 0, 128, 128);
 
     const isBlue = team === 2;
-    const armorMain = isBlue ? "#1d4ed8" : "#b91c1c";
+    const armorMain = isBlue ? "#2563eb" : "#dc2626";
     const armorDark = isBlue ? "#1e3a8a" : "#7f1d1d";
-    const armorLight = isBlue ? "#93c5fd" : "#fca5a5";
-    const sashimonoBg = isBlue ? "#2563eb" : "#dc2626";
-    const sashimonoBorder = "#f8fafc";
-    const horseMain = "#78350f";
-    const horseShade = "#451a03";
+    const trimColor = unitId === "general" ? "#facc15" : (isBlue ? "#bfdbfe" : "#fecaca");
+    const horseColor = "#6b3e26";
 
     const isMounted = unitId === "cavalry" || unitId === "general";
     const isHeavy = unitId === "samurai" || unitId === "general" || unitId === "katana" || unitId === "naginata";
-    const isGeneral = unitId === "general";
-    const isRanged = unitId === "bow" || unitId === "matchlock";
     const isCannon = unitId === "cannon";
 
     if (state === "fallen") {
       ctx.fillStyle = "rgba(15, 23, 42, 0.35)";
       ctx.beginPath();
-      ctx.ellipse(80, 124, 54, 12, 0, 0, Math.PI * 2);
+      ctx.ellipse(64, 102, 34, 7, 0, 0, Math.PI * 2);
       ctx.fill();
-
-      if (isMounted) {
-        ctx.fillStyle = horseShade;
-        ctx.beginPath();
-        ctx.roundRect(24, 98, 96, 22, 9);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(118, 106, 11, 0, Math.PI * 2);
-        ctx.fill();
-      }
 
       ctx.fillStyle = armorDark;
       ctx.beginPath();
-      ctx.roundRect(30, 108, 76, 14, 6);
+      ctx.roundRect(34, 88, 50, 10, 5);
       ctx.fill();
 
       ctx.fillStyle = "#e2e8f0";
       ctx.beginPath();
-      ctx.arc(108, 113, 8, 0, Math.PI * 2);
+      ctx.arc(86, 92, 6, 0, Math.PI * 2);
       ctx.fill();
-
       return canvas;
     }
 
-    // Ground shadow
-    ctx.fillStyle = "rgba(15, 23, 42, 0.34)";
+    // Subtle ground shadow
+    ctx.fillStyle = "rgba(15, 23, 42, 0.28)";
     ctx.beginPath();
-    ctx.ellipse(80, 144, isMounted ? 42 : 30, 9, 0, 0, Math.PI * 2);
+    ctx.ellipse(64, 114, isMounted ? 26 : 18, 5, 0, 0, Math.PI * 2);
     ctx.fill();
-
-    // Sashimono war banner behind unit
-    const flagX = isMounted ? 44 : 52;
-    const flagTopY = isMounted ? 14 : 20;
-    ctx.strokeStyle = "#d6d3d1";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(flagX, 136);
-    ctx.lineTo(flagX, flagTopY);
-    ctx.stroke();
-
-    ctx.fillStyle = sashimonoBg;
-    ctx.strokeStyle = sashimonoBorder;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(flagX + 1.5, flagTopY + 2);
-    ctx.lineTo(flagX + 34, flagTopY + 8);
-    ctx.lineTo(flagX + 34, flagTopY + 42);
-    ctx.lineTo(flagX + 1.5, flagTopY + 36);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Mon crest mark on banner
-    ctx.strokeStyle = isGeneral ? "#fde047" : armorLight;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(flagX + 18, flagTopY + 22, 6, 0, Math.PI * 2);
-    ctx.stroke();
 
     if (isCannon) {
-      // Wooden gun carriage
+      // Compact cannon carriage + barrel
       ctx.fillStyle = "#5c3a21";
-      ctx.strokeStyle = "#29170a";
+      ctx.beginPath();
+      ctx.roundRect(36, 86, 52, 16, 4);
+      ctx.fill();
+
+      ctx.fillStyle = "#a8a29e";
+      ctx.strokeStyle = "#1c1917";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(46, 114);
-      ctx.lineTo(116, 114);
-      ctx.lineTo(104, 134);
-      ctx.lineTo(56, 134);
-      ctx.closePath();
+      ctx.roundRect(40, 66, 58, 16, 5);
       ctx.fill();
       ctx.stroke();
 
-      // Bronze cannon barrel
-      const grad = ctx.createLinearGradient(52, 76, 128, 104);
-      grad.addColorStop(0, "#78716c");
-      grad.addColorStop(0.5, "#d6d3d1");
-      grad.addColorStop(1, "#57534e");
-      ctx.fillStyle = grad;
-      ctx.strokeStyle = "#1c1917";
+      ctx.strokeStyle = "#3f2614";
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.roundRect(54, 82, 74, 22, 6);
-      ctx.fill();
+      ctx.arc(46, 104, 9, 0, Math.PI * 2);
+      ctx.arc(82, 104, 9, 0, Math.PI * 2);
       ctx.stroke();
-
-      // Spoked wheels
-      for (const wx of [62, 104]) {
-        ctx.strokeStyle = "#451a03";
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.arc(wx, 128, 13, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.fillStyle = "#92400e";
-        ctx.beginPath();
-        ctx.arc(wx, 128, 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
       return canvas;
     }
 
     if (isMounted) {
-      // Horse body & legs
-      ctx.fillStyle = horseShade;
-      ctx.fillRect(56, 112, 8, 28);
-      ctx.fillRect(102, 112, 8, 28);
-
-      ctx.fillStyle = horseMain;
-      ctx.strokeStyle = "#1c1917";
-      ctx.lineWidth = 2;
+      // Horse silhouette
+      ctx.fillStyle = horseColor;
+      ctx.strokeStyle = "#111827";
+      ctx.lineWidth = 1.8;
       ctx.beginPath();
-      ctx.ellipse(84, 104, 30, 15, -0.08, 0, Math.PI * 2);
+      ctx.ellipse(64, 86, 22, 10, -0.05, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
       // Horse neck & head
       ctx.beginPath();
-      ctx.moveTo(104, 96);
-      ctx.lineTo(122, 72);
-      ctx.lineTo(136, 82);
-      ctx.lineTo(116, 108);
+      ctx.moveTo(80, 80);
+      ctx.lineTo(94, 62);
+      ctx.lineTo(104, 70);
+      ctx.lineTo(88, 88);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
-      // Horse legs foreground
-      ctx.fillStyle = horseMain;
-      ctx.fillRect(63, 115, 8, 28);
-      ctx.fillRect(95, 115, 8, 28);
+      // Horse legs
+      ctx.fillStyle = horseColor;
+      ctx.fillRect(46, 93, 6, 20);
+      ctx.fillRect(74, 93, 6, 20);
     }
 
-    const riderOffsetY = isMounted ? -26 : 0;
+    const dy = isMounted ? -18 : 0;
 
-    // Legs / hakama
+    // Legs (for foot soldiers)
     if (!isMounted) {
       ctx.fillStyle = "#1e293b";
-      ctx.strokeStyle = "#0f172a";
-      ctx.lineWidth = 2;
-      ctx.fillRect(67, 112, 10, 28);
-      ctx.strokeRect(67, 112, 10, 28);
-      ctx.fillRect(83, 112, 10, 28);
-      ctx.strokeRect(83, 112, 10, 28);
+      ctx.fillRect(54, 92, 7, 21);
+      ctx.fillRect(67, 92, 7, 21);
     }
 
-    // Do / armored torso
-    ctx.fillStyle = isGeneral ? "#1e1b4b" : armorMain;
-    ctx.strokeStyle = "#0f172a";
-    ctx.lineWidth = 2.2;
+    // Armored torso
+    ctx.fillStyle = armorMain;
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(63, 76 + riderOffsetY, 34, 38, 6);
+    ctx.roundRect(51, 64 + dy, 26, 30, 5);
     ctx.fill();
     ctx.stroke();
 
-    // Kusazuri tassets / armor trim
-    ctx.strokeStyle = isGeneral ? "#facc15" : armorLight;
+    // Armor highlight stripe
+    ctx.strokeStyle = trimColor;
     ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.moveTo(66, 90 + riderOffsetY);
-    ctx.lineTo(94, 90 + riderOffsetY);
-    ctx.moveTo(66, 102 + riderOffsetY);
-    ctx.lineTo(94, 102 + riderOffsetY);
+    ctx.moveTo(54, 76 + dy);
+    ctx.lineTo(74, 76 + dy);
     ctx.stroke();
 
-    // Sode shoulder guards
-    ctx.fillStyle = isHeavy ? armorMain : armorDark;
+    // Shoulders
+    ctx.fillStyle = armorDark;
     ctx.beginPath();
-    ctx.roundRect(53, 77 + riderOffsetY, 12, 18, 4);
-    ctx.roundRect(95, 77 + riderOffsetY, 12, 18, 4);
+    ctx.roundRect(43, 65 + dy, 9, 13, 3);
+    ctx.roundRect(76, 65 + dy, 9, 13, 3);
     ctx.fill();
     ctx.stroke();
 
-    // Head & Kabuto / Jingasa helmet
+    // Head
     ctx.fillStyle = "#fde68a";
     ctx.beginPath();
-    ctx.arc(80, 65 + riderOffsetY, 9, 0, Math.PI * 2);
+    ctx.arc(64, 54 + dy, 7, 0, Math.PI * 2);
     ctx.fill();
 
+    // Helmet (Kabuto for heavy/elite, Jingasa for light/ranged)
     if (isHeavy) {
-      // Kabuto bowl & crest
-      ctx.fillStyle = isGeneral ? "#b91c1c" : "#334155";
+      ctx.fillStyle = "#334155";
       ctx.beginPath();
-      ctx.arc(80, 62 + riderOffsetY, 12, Math.PI, 0);
+      ctx.arc(64, 52 + dy, 9.5, Math.PI, 0);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
-      // V-shaped maedate horns for Samurai / General
-      ctx.strokeStyle = isGeneral ? "#fde047" : "#e2e8f0";
-      ctx.lineWidth = 2.4;
+      ctx.strokeStyle = trimColor;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(80, 52 + riderOffsetY);
-      ctx.lineTo(67, 38 + riderOffsetY);
-      ctx.moveTo(80, 52 + riderOffsetY);
-      ctx.lineTo(93, 38 + riderOffsetY);
+      ctx.moveTo(64, 43 + dy);
+      ctx.lineTo(54, 32 + dy);
+      ctx.moveTo(64, 43 + dy);
+      ctx.lineTo(74, 32 + dy);
       ctx.stroke();
     } else {
-      // Jingasa conical war hat
       ctx.fillStyle = "#475569";
       ctx.beginPath();
-      ctx.moveTo(62, 62 + riderOffsetY);
-      ctx.lineTo(80, 50 + riderOffsetY);
-      ctx.lineTo(98, 62 + riderOffsetY);
+      ctx.moveTo(50, 51 + dy);
+      ctx.lineTo(64, 42 + dy);
+      ctx.lineTo(78, 51 + dy);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
     }
 
-    // Unit-specific weapon silhouette
+    // Clean weapon accent
     ctx.lineCap = "round";
-    if (unitId === "yari" || unitId === "naginata") {
-      ctx.strokeStyle = "#cbd5e1";
+    if (unitId === "yari" || unitId === "naginata" || unitId === "ashigaru") {
+      ctx.strokeStyle = "#e2e8f0";
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(82, 108 + dy);
+      ctx.lineTo(88, 26 + dy);
+      ctx.stroke();
+    } else if (unitId === "bow") {
+      ctx.strokeStyle = "#b45309";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(83, 74 + dy, 13, -Math.PI * 0.4, Math.PI * 0.4);
+      ctx.stroke();
+    } else if (unitId === "matchlock") {
+      ctx.strokeStyle = "#27272a";
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(104, 134 + riderOffsetY);
-      ctx.lineTo(114, 24 + riderOffsetY);
+      ctx.moveTo(76, 78 + dy);
+      ctx.lineTo(104, 58 + dy);
       ctx.stroke();
-
-      ctx.fillStyle = "#f8fafc";
-      ctx.beginPath();
-      ctx.moveTo(114, 16 + riderOffsetY);
-      ctx.lineTo(120, 30 + riderOffsetY);
-      ctx.lineTo(109, 30 + riderOffsetY);
-      ctx.closePath();
-      ctx.fill();
-    } else if (unitId === "katana" || unitId === "samurai" || unitId === "general" || isMounted) {
-      ctx.strokeStyle = "#e2e8f0";
-      ctx.lineWidth = 3.2;
-      ctx.beginPath();
-      ctx.moveTo(98, 102 + riderOffsetY);
-      ctx.quadraticCurveTo(124, 84 + riderOffsetY, 134, 54 + riderOffsetY);
-      ctx.stroke();
-    } else if (isRanged) {
-      if (unitId === "bow") {
-        ctx.strokeStyle = "#b45309";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(106, 86 + riderOffsetY, 18, -Math.PI * 0.42, Math.PI * 0.42);
-        ctx.stroke();
-      } else {
-        // Matchlock arquebus
-        ctx.strokeStyle = "#3f3f46";
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(94, 94 + riderOffsetY);
-        ctx.lineTo(132, 66 + riderOffsetY);
-        ctx.stroke();
-      }
     } else {
-      // Ashigaru spear
-      ctx.strokeStyle = "#d6d3d1";
+      // Katana / Samurai / Cavalry / General blade
+      ctx.strokeStyle = "#f1f5f9";
       ctx.lineWidth = 2.6;
       ctx.beginPath();
-      ctx.moveTo(102, 132 + riderOffsetY);
-      ctx.lineTo(110, 34 + riderOffsetY);
+      ctx.moveTo(78, 82 + dy);
+      ctx.lineTo(102, 54 + dy);
       ctx.stroke();
     }
 

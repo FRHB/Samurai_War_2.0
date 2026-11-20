@@ -1,8 +1,9 @@
-import { EDITOR_TOOLS, MAPS, UNITS } from "../config/gameData.js";
+import { MAPS, UNITS, EDITOR_TOOLS, UNIT_SIZE_OPTIONS } from "../config/gameData.js";
 
 export function createUiController({
   soundManager,
   onSelectUnitDef,
+  onSelectUnitSize,
   onSelectEditorTool,
   onSelectTeam,
   onSelectPointerAction,
@@ -13,145 +14,201 @@ export function createUiController({
   onClearAll
 }) {
   const mapSelect = document.getElementById("mapSelect");
-  const unitBar = document.getElementById("unitBar");
-  const editorBar = document.getElementById("editorBar");
-  const hintEl = document.getElementById("terrainHint");
-  const redAliveEl = document.getElementById("redAlive");
-  const blueAliveEl = document.getElementById("blueAlive");
+  const unitRosterBar = document.getElementById("unitRosterBar");
+  const editorToolBar = document.getElementById("editorToolBar");
+  const modeSandboxBtn = document.getElementById("modeSandboxBtn");
+  const modePracticeBtn = document.getElementById("modePracticeBtn");
+  const modeEditorBtn = document.getElementById("modeEditorBtn");
+  const team1Btn = document.getElementById("team1Btn");
+  const team2Btn = document.getElementById("team2Btn");
+  const actionDeployBtn = document.getElementById("actionDeployBtn");
+  const actionOrderBtn = document.getElementById("actionOrderBtn");
+  const speedBtn = document.getElementById("speedBtn");
+  const musicBtn = document.getElementById("musicBtn");
+  const clearBtn = document.getElementById("clearBtn");
+  const terrainHint = document.getElementById("terrainHint");
+  const redCountEl = document.getElementById("redCount");
+  const blueCountEl = document.getElementById("blueCount");
 
-  MAPS.forEach((m, idx) => {
+  MAPS.forEach((m) => {
     const opt = document.createElement("option");
     opt.value = m.path;
     opt.textContent = m.label;
-    if (idx === 1) opt.selected = true;
     mapSelect.appendChild(opt);
   });
+  mapSelect.value = MAPS[1].path;
 
-  const syncActionButtons = (pointerAction) => {
-    document.getElementById("actionDeploy").classList.toggle("active", pointerAction === "deploy");
-    document.getElementById("actionOrder").classList.toggle("active", pointerAction === "order");
-  };
+  const sizeSelect = document.createElement("select");
+  sizeSelect.id = "unitSizeSelect";
+  sizeSelect.className = "bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-medium px-2.5 py-1.5 rounded border border-slate-600 focus:outline-none";
+  UNIT_SIZE_OPTIONS.forEach((optDef) => {
+    const opt = document.createElement("option");
+    opt.value = String(optDef.soldiers);
+    opt.textContent = optDef.label;
+    sizeSelect.appendChild(opt);
+  });
+  sizeSelect.value = String(UNIT_SIZE_OPTIONS[0].soldiers);
+  sizeSelect.addEventListener("change", () => {
+    onSelectUnitSize?.(Number(sizeSelect.value));
+    soundManager.playSfx(soundManager.sfx.select);
+  });
 
-  const unitButtons = [];
+  if (actionDeployBtn?.parentElement) {
+    actionDeployBtn.parentElement.insertBefore(sizeSelect, actionDeployBtn);
+  }
+
+  let activeUnitBtn = null;
   UNITS.forEach((u, idx) => {
     const btn = document.createElement("button");
-    btn.className = "tool-btn" + (idx === 0 ? " active" : "");
-    btn.innerHTML = `<img src="${u.icon}" alt="${u.label}" /><span>${u.label}</span>`;
+    btn.type = "button";
+    btn.className = "unit-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition";
+    btn.innerHTML = `<img src="${u.icon}" alt="${u.label}" class="w-4 h-4 object-contain" onerror="this.style.display='none'" /><span>${u.label}</span>`;
     btn.addEventListener("click", () => {
-      unitButtons.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
+      if (activeUnitBtn) activeUnitBtn.classList.remove("ring-2", "ring-amber-400", "bg-slate-700");
+      activeUnitBtn = btn;
+      btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
       onSelectUnitDef(u);
       soundManager.playSfx(soundManager.sfx.select);
     });
-    unitBar.appendChild(btn);
-    unitButtons.push(btn);
+    if (idx === 0) {
+      activeUnitBtn = btn;
+      btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+    }
+    unitRosterBar.appendChild(btn);
   });
 
-  const editorButtons = [];
-  EDITOR_TOOLS.forEach((tool, idx) => {
+  let activeToolBtn = null;
+  EDITOR_TOOLS.forEach((t, idx) => {
     const btn = document.createElement("button");
-    btn.className = "tool-btn" + (idx === 1 ? " active" : "");
-    btn.innerHTML = `<img src="${tool.icon}" alt="${tool.label}" /><span>${tool.label}</span>`;
+    btn.type = "button";
+    btn.className = "editor-tool-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition";
+    btn.innerHTML = `<img src="${t.icon}" alt="${t.label}" class="w-4 h-4 object-contain" onerror="this.style.display='none'" /><span>${t.label}</span>`;
     btn.addEventListener("click", () => {
-      editorButtons.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      onSelectEditorTool(tool);
+      if (activeToolBtn) activeToolBtn.classList.remove("ring-2", "ring-amber-400", "bg-slate-700");
+      activeToolBtn = btn;
+      btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+      onSelectEditorTool(t);
       soundManager.playSfx(soundManager.sfx.select);
     });
-    editorBar.appendChild(btn);
-    editorButtons.push(btn);
+    if (idx === 1) {
+      activeToolBtn = btn;
+      btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+    }
+    editorToolBar.appendChild(btn);
   });
 
-  document.getElementById("teamRed").addEventListener("click", () => {
-    document.getElementById("teamRed").classList.add("active");
-    document.getElementById("teamBlue").classList.remove("active");
-    onSelectTeam(1);
-    soundManager.playSfx(soundManager.sfx.select);
-  });
+  const setActiveModeButton = (mode) => {
+    for (const b of [modeSandboxBtn, modePracticeBtn, modeEditorBtn]) {
+      b?.classList.remove("ring-2", "ring-amber-400", "bg-amber-600");
+    }
+    const target = mode === "sandbox" ? modeSandboxBtn : mode === "practice" ? modePracticeBtn : modeEditorBtn;
+    target?.classList.add("ring-2", "ring-amber-400", "bg-amber-600");
 
-  document.getElementById("teamBlue").addEventListener("click", () => {
-    document.getElementById("teamBlue").classList.add("active");
-    document.getElementById("teamRed").classList.remove("active");
-    onSelectTeam(2);
-    soundManager.playSfx(soundManager.sfx.select);
-  });
-
-  document.getElementById("actionDeploy").addEventListener("click", () => {
-    onSelectPointerAction("deploy");
-    soundManager.playSfx(soundManager.sfx.select);
-  });
-
-  document.getElementById("actionOrder").addEventListener("click", () => {
-    onSelectPointerAction("order");
-    soundManager.playSfx(soundManager.sfx.select);
-  });
-
-  document.getElementById("speedToggle").addEventListener("click", (e) => {
-    const nextSpeed = onToggleSimSpeed();
-    e.currentTarget.textContent = `Speed: ${nextSpeed}x`;
-    soundManager.playSfx(soundManager.sfx.select);
-  });
-
-  document.getElementById("musicToggle").addEventListener("click", (e) => {
-    const enabled = soundManager.toggleMusic();
-    e.currentTarget.textContent = `Music: ${enabled ? "On" : "Off"}`;
-  });
-
-  document.querySelectorAll(".order-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".order-btn").forEach((b) => b.classList.toggle("active", b === btn));
-      onIssueOrder(btn.dataset.order);
-      soundManager.playSfx(soundManager.sfx.move);
-    });
-  });
-
-  const setModeUi = (mode) => {
-    ["sandbox", "practice", "editor"].forEach((m) => {
-      document.getElementById("mode" + m[0].toUpperCase() + m.slice(1)).classList.toggle("active", m === mode);
-    });
-    unitBar.style.display = mode === "editor" ? "none" : "flex";
-    editorBar.style.display = mode === "editor" ? "flex" : "none";
+    const isEditor = mode === "editor";
+    editorToolBar?.classList.toggle("hidden", !isEditor);
+    unitRosterBar?.classList.toggle("hidden", isEditor);
   };
 
-  document.getElementById("modeSandbox").addEventListener("click", () => {
-    setModeUi("sandbox");
+  setActiveModeButton("sandbox");
+
+  modeSandboxBtn?.addEventListener("click", () => {
+    setActiveModeButton("sandbox");
     onSelectMode("sandbox");
     soundManager.playSfx(soundManager.sfx.select);
   });
 
-  document.getElementById("modePractice").addEventListener("click", () => {
-    setModeUi("practice");
-    mapSelect.value = "assets/Maps/Practice.png";
+  modePracticeBtn?.addEventListener("click", () => {
+    setActiveModeButton("practice");
     onSelectMode("practice");
     soundManager.playSfx(soundManager.sfx.select);
   });
 
-  document.getElementById("modeEditor").addEventListener("click", () => {
-    setModeUi("editor");
+  modeEditorBtn?.addEventListener("click", () => {
+    setActiveModeButton("editor");
     onSelectMode("editor");
     soundManager.playSfx(soundManager.sfx.select);
   });
 
-  mapSelect.addEventListener("change", () => onSelectMap(mapSelect.value));
+  const setTeamSelection = (team) => {
+    team1Btn?.classList.toggle("ring-2", team === 1);
+    team1Btn?.classList.toggle("ring-red-300", team === 1);
+    team2Btn?.classList.toggle("ring-2", team === 2);
+    team2Btn?.classList.toggle("ring-blue-300", team === 2);
+  };
+  setTeamSelection(1);
 
-  document.getElementById("clearAll").addEventListener("click", () => {
+  team1Btn?.addEventListener("click", () => {
+    setTeamSelection(1);
+    onSelectTeam(1);
+    soundManager.playSfx(soundManager.sfx.select);
+  });
+
+  team2Btn?.addEventListener("click", () => {
+    setTeamSelection(2);
+    onSelectTeam(2);
+    soundManager.playSfx(soundManager.sfx.select);
+  });
+
+  const syncActionButtons = (action) => {
+    actionDeployBtn?.classList.toggle("ring-2", action === "deploy");
+    actionDeployBtn?.classList.toggle("ring-amber-400", action === "deploy");
+    actionOrderBtn?.classList.toggle("ring-2", action === "order");
+    actionOrderBtn?.classList.toggle("ring-amber-400", action === "order");
+  };
+  syncActionButtons("deploy");
+
+  actionDeployBtn?.addEventListener("click", () => {
+    onSelectPointerAction("deploy");
+    soundManager.playSfx(soundManager.sfx.select);
+  });
+
+  actionOrderBtn?.addEventListener("click", () => {
+    onSelectPointerAction("order");
+    soundManager.playSfx(soundManager.sfx.select);
+  });
+
+  speedBtn?.addEventListener("click", () => {
+    const nextSpeed = onToggleSimSpeed();
+    speedBtn.textContent = `Speed: ${nextSpeed}x`;
+    soundManager.playSfx(soundManager.sfx.select);
+  });
+
+  let musicOn = false;
+  musicBtn?.addEventListener("click", () => {
+    musicOn = !musicOn;
+    soundManager.setMusicEnabled(musicOn);
+    musicBtn.textContent = `Music: ${musicOn ? "On" : "Off"}`;
+  });
+
+  clearBtn?.addEventListener("click", () => {
     onClearAll();
     soundManager.playSfx(soundManager.sfx.select);
   });
 
-  const updateTerrainHint = (label) => {
-    hintEl.textContent = `Terrain: ${label}`;
-  };
+  mapSelect?.addEventListener("change", () => {
+    onSelectMap(mapSelect.value);
+    soundManager.playSfx(soundManager.sfx.select);
+  });
 
-  const updateAliveCounts = (redCount, blueCount) => {
-    redAliveEl.textContent = String(redCount);
-    blueAliveEl.textContent = String(blueCount);
-  };
+  const orderButtons = document.querySelectorAll("[data-order]");
+  orderButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      orderButtons.forEach((b) => b.classList.remove("ring-2", "ring-amber-400", "bg-amber-600", "text-white"));
+      btn.classList.add("ring-2", "ring-amber-400", "bg-amber-600", "text-white");
+      onIssueOrder(btn.dataset.order);
+      soundManager.playSfx(soundManager.sfx.select);
+    });
+  });
 
   return {
     getSelectedMapPath: () => mapSelect.value,
     syncActionButtons,
-    updateTerrainHint,
-    updateAliveCounts
+    updateTerrainHint: (label) => {
+      if (terrainHint) terrainHint.textContent = `Terrain: ${label}`;
+    },
+    updateAliveCounts: (redCount, blueCount) => {
+      if (redCountEl) redCountEl.textContent = String(redCount);
+      if (blueCountEl) blueCountEl.textContent = String(blueCount);
+    }
   };
 }
