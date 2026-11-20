@@ -36,69 +36,71 @@ export function createUiController({
   let currentMode = "sandbox";
   let activeTeam = 1;
   let pointerAction = "deploy";
+  let musicOn = false;
 
-  const bindInteractiveButton = (el, handler) => {
-    if (!el) return;
+  const fireOncePerGesture = (el, handler) => {
+    if (!el) return () => {};
+    let lastFireTime = 0;
+    const run = (e) => {
+      const now = performance.now();
+      if (now - lastFireTime < 120) return;
+      lastFireTime = now;
+      if (e) {
+        e.stopPropagation();
+      }
+      handler(e);
+    };
+
     el.style.pointerEvents = "auto";
     el.style.cursor = "pointer";
-    if (!el.style.position) {
-      el.style.position = "relative";
-    }
-    if (!el.style.zIndex) {
-      el.style.zIndex = "30";
-    }
+    el.style.position = el.style.position || "relative";
+    el.style.zIndex = "50";
 
-    let pointerStart = null;
     el.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
-      pointerStart = { x: e.clientX, y: e.clientY };
-    });
+      run(e);
+    }, { capture: true });
 
-    el.addEventListener("pointerup", (e) => {
+    el.addEventListener("mousedown", (e) => {
       e.stopPropagation();
-      if (!pointerStart) return;
-      const moved = Math.hypot(e.clientX - pointerStart.x, e.clientY - pointerStart.y);
-      pointerStart = null;
-      if (moved < 8) {
-        handler(e);
-      }
-    });
+      run(e);
+    }, { capture: true });
 
     el.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (e.detail === 0) {
-        handler(e);
-      }
+      run(e);
     });
+
+    return run;
   };
 
   if (!unitRosterBar && topBar) {
     unitRosterBar = document.createElement("div");
     unitRosterBar.id = "unitRosterBar";
     unitRosterBar.style.cssText =
-      "display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:20;pointer-events:auto;";
+      "display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:40;pointer-events:auto;";
     topBar.insertAdjacentElement("afterend", unitRosterBar);
   } else if (unitRosterBar) {
     unitRosterBar.style.cssText =
-      "display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:20;pointer-events:auto;";
+      "display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:40;pointer-events:auto;";
   }
 
   if (!editorToolBar && topBar) {
     editorToolBar = document.createElement("div");
     editorToolBar.id = "editorToolBar";
     editorToolBar.style.cssText =
-      "display:none;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:20;pointer-events:auto;";
+      "display:none;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:40;pointer-events:auto;";
     (unitRosterBar || topBar).insertAdjacentElement("afterend", editorToolBar);
   } else if (editorToolBar) {
     editorToolBar.style.cssText =
-      "flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:20;pointer-events:auto;";
+      "flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:6px 8px;background:rgba(15,23,42,0.92);border-radius:8px;border:1px solid rgba(148,163,184,0.35);position:relative;z-index:40;pointer-events:auto;";
   }
 
   if (mapSelect) {
     mapSelect.style.pointerEvents = "auto";
     mapSelect.style.position = "relative";
-    mapSelect.style.zIndex = "30";
-    mapSelect.addEventListener("pointerdown", (e) => e.stopPropagation());
+    mapSelect.style.zIndex = "50";
+    mapSelect.addEventListener("pointerdown", (e) => e.stopPropagation(), { capture: true });
     mapSelect.innerHTML = "";
     MAPS.forEach((m) => {
       const opt = document.createElement("option");
@@ -109,11 +111,10 @@ export function createUiController({
     mapSelect.value = MAPS[1]?.path || MAPS[0]?.path || "";
   }
 
-  // Deployment bar directly below the unit roster showing selected unit type + squad size selector
   const deploySubBar = document.createElement("div");
   deploySubBar.id = "deployFormationSubBar";
   deploySubBar.style.cssText =
-    "display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;padding:6px 10px;background:rgba(15,23,42,0.92);color:#f8fafc;font-size:12px;border-radius:8px;border:1px solid rgba(148,163,184,0.35);width:fit-content;position:relative;z-index:20;pointer-events:auto;";
+    "display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;padding:6px 10px;background:rgba(15,23,42,0.92);color:#f8fafc;font-size:12px;border-radius:8px;border:1px solid rgba(148,163,184,0.35);width:fit-content;position:relative;z-index:40;pointer-events:auto;";
 
   const unitBadge = document.createElement("span");
   unitBadge.id = "selectedUnitKindLabel";
@@ -127,8 +128,8 @@ export function createUiController({
   const sizeSelect = document.createElement("select");
   sizeSelect.id = "unitSizeSelect";
   sizeSelect.style.cssText =
-    "background:#1e293b;color:#f8fafc;font-size:12px;font-weight:500;padding:4px 8px;border-radius:6px;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:30;";
-  sizeSelect.addEventListener("pointerdown", (e) => e.stopPropagation());
+    "background:#1e293b;color:#f8fafc;font-size:12px;font-weight:500;padding:4px 8px;border-radius:6px;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:50;";
+  sizeSelect.addEventListener("pointerdown", (e) => e.stopPropagation(), { capture: true });
   UNIT_SIZE_OPTIONS.forEach((optDef) => {
     const opt = document.createElement("option");
     opt.value = String(optDef.soldiers);
@@ -171,10 +172,10 @@ export function createUiController({
       const btn = document.createElement("button");
       btn.type = "button";
       btn.style.cssText =
-        "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:21;";
+        "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:50;";
       btn.innerHTML = `<img src="${u.icon}" alt="${u.label}" style="width:16px;height:16px;object-fit:contain;pointer-events:none;" onerror="this.style.display='none'" /><span style="pointer-events:none;">${u.label}</span>`;
 
-      bindInteractiveButton(btn, () => {
+      fireOncePerGesture(btn, () => {
         if (activeUnitBtn) {
           activeUnitBtn.style.background = "#1e293b";
           activeUnitBtn.style.borderColor = "#475569";
@@ -207,9 +208,9 @@ export function createUiController({
       const btn = document.createElement("button");
       btn.type = "button";
       btn.style.cssText =
-        "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:21;";
+        "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;pointer-events:auto;position:relative;z-index:50;";
       btn.innerHTML = `<img src="${t.icon}" alt="${t.label}" style="width:16px;height:16px;object-fit:contain;pointer-events:none;" onerror="this.style.display='none'" /><span style="pointer-events:none;">${t.label}</span>`;
-      bindInteractiveButton(btn, () => {
+      fireOncePerGesture(btn, () => {
         if (activeToolBtn) {
           activeToolBtn.style.background = "#1e293b";
           activeToolBtn.style.borderColor = "#475569";
@@ -244,8 +245,9 @@ export function createUiController({
       btn.classList.toggle("ring-2", isSelected);
       btn.classList.toggle("ring-amber-400", isSelected);
       btn.classList.toggle("bg-amber-600", isSelected);
+      btn.style.backgroundColor = isSelected ? "#d97706" : "";
       btn.style.outline = isSelected ? "2px solid #fbbf24" : "none";
-      btn.style.boxShadow = isSelected ? "0 0 0 2px rgba(251,191,36,0.8)" : "none";
+      btn.style.boxShadow = isSelected ? "0 0 0 2px rgba(251,191,36,0.85)" : "none";
     }
 
     const isEditor = currentMode === "editor";
@@ -254,32 +256,16 @@ export function createUiController({
     if (deploySubBar) deploySubBar.style.display = isEditor ? "none" : "flex";
   };
 
-  const setActiveModeButton = (mode) => {
+  const handleModeChange = (mode) => {
     currentMode = mode;
     syncModeVisuals();
+    onSelectMode?.(mode);
+    soundManager?.playSfx?.(soundManager?.sfx?.select);
   };
 
   syncModeVisuals();
 
-  bindInteractiveButton(modeSandboxBtn, () => {
-    setActiveModeButton("sandbox");
-    onSelectMode("sandbox");
-    soundManager.playSfx(soundManager.sfx.select);
-  });
-
-  bindInteractiveButton(modePracticeBtn, () => {
-    setActiveModeButton("practice");
-    onSelectMode("practice");
-    soundManager.playSfx(soundManager.sfx.select);
-  });
-
-  bindInteractiveButton(modeEditorBtn, () => {
-    setActiveModeButton("editor");
-    onSelectMode("editor");
-    soundManager.playSfx(soundManager.sfx.select);
-  });
-
-  const setTeamSelection = (team) => {
+  const handleTeamChange = (team) => {
     activeTeam = team;
     if (team1Btn) {
       const isRed = team === 1;
@@ -292,23 +278,14 @@ export function createUiController({
       const isBlue = team === 2;
       team2Btn.classList.toggle("ring-2", isBlue);
       team2Btn.classList.toggle("ring-blue-300", isBlue);
+      team2Btn.style.backgroundColor = isBlue ? "#2563eb" : "";
       team2Btn.style.outline = isBlue ? "2px solid #bfdbfe" : "none";
       team2Btn.style.boxShadow = isBlue ? "0 0 0 2px rgba(191,219,254,0.85)" : "none";
     }
+    onSelectTeam?.(team);
+    soundManager?.playSfx?.(soundManager?.sfx?.select);
   };
-  setTeamSelection(activeTeam);
-
-  bindInteractiveButton(team1Btn, () => {
-    setTeamSelection(1);
-    onSelectTeam(1);
-    soundManager.playSfx(soundManager.sfx.select);
-  });
-
-  bindInteractiveButton(team2Btn, () => {
-    setTeamSelection(2);
-    onSelectTeam(2);
-    soundManager.playSfx(soundManager.sfx.select);
-  });
+  handleTeamChange(activeTeam);
 
   const syncActionButtons = (action) => {
     pointerAction = action;
@@ -316,57 +293,95 @@ export function createUiController({
       const isDeploy = action === "deploy";
       actionDeployBtn.classList.toggle("ring-2", isDeploy);
       actionDeployBtn.classList.toggle("ring-amber-400", isDeploy);
+      actionDeployBtn.style.backgroundColor = isDeploy ? "#dc2626" : "";
       actionDeployBtn.style.outline = isDeploy ? "2px solid #fbbf24" : "none";
-      actionDeployBtn.style.boxShadow = isDeploy ? "0 0 0 2px rgba(251,191,36,0.8)" : "none";
+      actionDeployBtn.style.boxShadow = isDeploy ? "0 0 0 2px rgba(251,191,36,0.85)" : "none";
     }
     if (actionOrderBtn) {
       const isOrder = action === "order";
       actionOrderBtn.classList.toggle("ring-2", isOrder);
       actionOrderBtn.classList.toggle("ring-amber-400", isOrder);
+      actionOrderBtn.style.backgroundColor = isOrder ? "#d97706" : "";
       actionOrderBtn.style.outline = isOrder ? "2px solid #fbbf24" : "none";
-      actionOrderBtn.style.boxShadow = isOrder ? "0 0 0 2px rgba(251,191,36,0.8)" : "none";
+      actionOrderBtn.style.boxShadow = isOrder ? "0 0 0 2px rgba(251,191,36,0.85)" : "none";
     }
   };
   syncActionButtons(pointerAction);
 
-  bindInteractiveButton(actionDeployBtn, () => {
-    syncActionButtons("deploy");
-    onSelectPointerAction("deploy");
-    soundManager.playSfx(soundManager.sfx.select);
-  });
+  const handleActionChange = (action) => {
+    syncActionButtons(action);
+    onSelectPointerAction?.(action);
+    soundManager?.playSfx?.(soundManager?.sfx?.select);
+  };
 
-  bindInteractiveButton(actionOrderBtn, () => {
-    syncActionButtons("order");
-    onSelectPointerAction("order");
-    soundManager.playSfx(soundManager.sfx.select);
-  });
+  const handleSpeedToggle = () => {
+    const nextSpeed = onToggleSimSpeed?.();
+    if (speedBtn && typeof nextSpeed === "number") {
+      speedBtn.textContent = `Speed: ${nextSpeed}x`;
+    }
+    soundManager?.playSfx?.(soundManager?.sfx?.select);
+  };
 
-  bindInteractiveButton(speedBtn, () => {
-    const nextSpeed = onToggleSimSpeed();
-    if (speedBtn) speedBtn.textContent = `Speed: ${nextSpeed}x`;
-    soundManager.playSfx(soundManager.sfx.select);
-  });
-
-  let musicOn = false;
-  bindInteractiveButton(musicBtn, () => {
+  const handleMusicToggle = () => {
     musicOn = !musicOn;
-    soundManager.setMusicEnabled(musicOn);
+    soundManager?.setMusicEnabled?.(musicOn);
     if (musicBtn) musicBtn.textContent = `Music: ${musicOn ? "On" : "Off"}`;
-  });
+  };
 
-  bindInteractiveButton(clearBtn, () => {
-    onClearAll();
-    soundManager.playSfx(soundManager.sfx.select);
-  });
+  const handleClear = () => {
+    onClearAll?.();
+    soundManager?.playSfx?.(soundManager?.sfx?.select);
+  };
+
+  fireOncePerGesture(modeSandboxBtn, () => handleModeChange("sandbox"));
+  fireOncePerGesture(modePracticeBtn, () => handleModeChange("practice"));
+  fireOncePerGesture(modeEditorBtn, () => handleModeChange("editor"));
+  fireOncePerGesture(team1Btn, () => handleTeamChange(1));
+  fireOncePerGesture(team2Btn, () => handleTeamChange(2));
+  fireOncePerGesture(actionDeployBtn, () => handleActionChange("deploy"));
+  fireOncePerGesture(actionOrderBtn, () => handleActionChange("order"));
+  fireOncePerGesture(speedBtn, handleSpeedToggle);
+  fireOncePerGesture(musicBtn, handleMusicToggle);
+  fireOncePerGesture(clearBtn, handleClear);
+
+  // Document-level delegation fallback in case any overlay or listener intercepts direct events
+  document.addEventListener("pointerdown", (e) => {
+    const targetEl = e.target instanceof Element ? e.target.closest("button") : null;
+    if (!targetEl) return;
+    e.stopPropagation();
+
+    if (targetEl === modeSandboxBtn) handleModeChange("sandbox");
+    else if (targetEl === modePracticeBtn) handleModeChange("practice");
+    else if (targetEl === modeEditorBtn) handleModeChange("editor");
+    else if (targetEl === team1Btn) handleTeamChange(1);
+    else if (targetEl === team2Btn) handleTeamChange(2);
+    else if (targetEl === actionDeployBtn) handleActionChange("deploy");
+    else if (targetEl === actionOrderBtn) handleActionChange("order");
+    else if (targetEl === speedBtn) handleSpeedToggle();
+    else if (targetEl === musicBtn) handleMusicToggle();
+    else if (targetEl === clearBtn) handleClear();
+    else if (targetEl.dataset?.order) {
+      document.querySelectorAll("[data-order]").forEach((b) => {
+        b.classList.remove("ring-2", "ring-amber-400", "bg-amber-600", "text-white");
+        b.style.outline = "none";
+        b.style.boxShadow = "none";
+      });
+      targetEl.classList.add("ring-2", "ring-amber-400", "bg-amber-600", "text-white");
+      targetEl.style.outline = "2px solid #fbbf24";
+      targetEl.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.8)";
+      onIssueOrder?.(targetEl.dataset.order);
+      soundManager?.playSfx?.(soundManager?.sfx?.select);
+    }
+  }, { capture: true });
 
   mapSelect?.addEventListener("change", () => {
-    onSelectMap(mapSelect.value);
-    soundManager.playSfx(soundManager.sfx.select);
+    onSelectMap?.(mapSelect.value);
+    soundManager?.playSfx?.(soundManager?.sfx?.select);
   });
 
   const orderButtons = document.querySelectorAll("[data-order]");
   orderButtons.forEach((btn) => {
-    bindInteractiveButton(btn, () => {
+    fireOncePerGesture(btn, () => {
       orderButtons.forEach((b) => {
         b.classList.remove("ring-2", "ring-amber-400", "bg-amber-600", "text-white");
         b.style.outline = "none";
@@ -375,8 +390,8 @@ export function createUiController({
       btn.classList.add("ring-2", "ring-amber-400", "bg-amber-600", "text-white");
       btn.style.outline = "2px solid #fbbf24";
       btn.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.8)";
-      onIssueOrder(btn.dataset.order);
-      soundManager.playSfx(soundManager.sfx.select);
+      onIssueOrder?.(btn.dataset.order);
+      soundManager?.playSfx?.(soundManager?.sfx?.select);
     });
   });
 
