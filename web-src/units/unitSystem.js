@@ -61,16 +61,16 @@ export function createUnitSystem({
     return dt;
   };
 
-  const spawnCombatFlash = (pos, isSmoke = false, radius = 0.85) => {
+  const spawnCombatFlash = (pos, isSmoke = false, radius = 0.65) => {
     if (isSmoke) {
-      const puff = createSpritePlane("smoke", Math.floor(Math.random() * 8), 7, radius * 1.4, radius * 1.4);
-      puff.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.55, pos.z);
+      const puff = createSpritePlane("smoke", Math.floor(Math.random() * 8), 7, radius * 1.3, radius * 1.3);
+      puff.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.42, pos.z);
       combatEffects.push({ mesh: puff, ttl: 0.45 });
       return;
     }
     const disc = BABYLON.MeshBuilder.CreateDisc("fx", { radius, tessellation: 12 }, scene);
     disc.rotation.x = Math.PI / 2;
-    disc.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.35, pos.z);
+    disc.position.set(pos.x, getGroundHeightAt(pos.x, pos.z) + 0.28, pos.z);
     disc.isPickable = false;
     const mat = new BABYLON.StandardMaterial("fxMat", scene);
     mat.emissiveColor = new BABYLON.Color3(1, 0.45, 0.15);
@@ -82,11 +82,11 @@ export function createUnitSystem({
   const createHpBar = (root, team) => {
     const barHolder = new BABYLON.TransformNode(`hpHolder_${Date.now()}_${Math.random()}`, scene);
     barHolder.parent = root;
-    barHolder.position.set(0, 1.9, 0);
+    barHolder.position.set(0, 1.38, 0);
     barHolder.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
 
-    const width = 1.1;
-    const height = 0.12;
+    const width = 0.8;
+    const height = 0.09;
 
     const bgMesh = BABYLON.MeshBuilder.CreatePlane("hpBg", { width, height }, scene);
     bgMesh.parent = barHolder;
@@ -97,7 +97,7 @@ export function createUnitSystem({
     bgMat.backFaceCulling = false;
     bgMesh.material = bgMat;
 
-    const fillMesh = BABYLON.MeshBuilder.CreatePlane("hpFill", { width: width - 0.04, height: height - 0.03 }, scene);
+    const fillMesh = BABYLON.MeshBuilder.CreatePlane("hpFill", { width: width - 0.03, height: height - 0.025 }, scene);
     fillMesh.parent = barHolder;
     fillMesh.position.z = -0.01;
     fillMesh.isPickable = false;
@@ -114,7 +114,7 @@ export function createUnitSystem({
     if (!unitObj.hpBar) return;
     const ratio = Math.max(0, Math.min(1, unitObj.hp / unitObj.maxHp));
     unitObj.hpBar.fillMesh.scaling.x = Math.max(0.001, ratio);
-    unitObj.hpBar.fillMesh.position.x = -(1 - ratio) * 0.53;
+    unitObj.hpBar.fillMesh.position.x = -(1 - ratio) * 0.385;
     if (ratio <= 0.3) {
       unitObj.hpBar.fillMat.diffuseColor.set(0.95, 0.2, 0.15);
     } else if (ratio <= 0.6) {
@@ -138,10 +138,10 @@ export function createUnitSystem({
     const root = new BABYLON.TransformNode(`unit_${unitDef.id}_${Date.now()}_${Math.random()}`, scene);
     root.position.set(point.x, y, point.z);
 
-    const plane = BABYLON.MeshBuilder.CreatePlane("marker", { size: 1.05 }, scene);
+    const plane = BABYLON.MeshBuilder.CreatePlane("marker", { size: 0.75 }, scene);
     plane.parent = root;
     plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
-    plane.position.y = 1.3;
+    plane.position.y = 0.98;
 
     const mat = new BABYLON.StandardMaterial(`mat_${unitDef.id}_${team}_${Date.now()}`, scene);
     mat.diffuseTexture = await getMarkerTexture(unitDef, team);
@@ -161,21 +161,21 @@ export function createUnitSystem({
     for (let i = 0; i < unitDef.squadSize; i++) {
       const r = Math.floor(i / cols);
       const c = i % cols;
-      const lx = (c - (cols - 1) / 2) * 0.74;
-      const lz = 0.85 + r * 0.74;
+      const lx = (c - (cols - 1) / 2) * 0.48;
+      const lz = 0.55 + r * 0.48;
 
-      const spriteW = isMounted ? 1.55 : 1.35;
-      const spriteH = isMounted ? 1.55 : 1.45;
+      const spriteW = isMounted ? 1.05 : 0.9;
+      const spriteH = isMounted ? 1.05 : 0.98;
       const sm = createSpritePlane(`unit_${unitDef.id}_s_${i}`, i % 8, team === 2 ? 1 : 2, spriteW, spriteH, aliveTex);
       sm.parent = root;
-      sm.position.set(lx, spriteH * 0.5 + 0.04, lz);
+      sm.position.set(lx, spriteH * 0.5 + 0.03, lz);
       sm.metadata = { unitId: unitDef.id, team, fallen: false };
       soldiers.push(sm);
     }
 
-    const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: 1.55, thickness: 0.08, tessellation: 24 }, scene);
+    const selRing = BABYLON.MeshBuilder.CreateTorus("selRing", { diameter: 1.1, thickness: 0.06, tessellation: 24 }, scene);
     selRing.parent = root;
-    selRing.position.y = 0.08;
+    selRing.position.y = 0.06;
     selRing.isPickable = false;
     const selMat = new BABYLON.StandardMaterial("selMat", scene);
     selMat.emissiveColor = new BABYLON.Color3(1, 0.88, 0.25);
@@ -231,7 +231,7 @@ export function createUnitSystem({
     const selectedList = getSelectedAliveUnits();
     if (!selectedList.length) return;
     const cols = Math.ceil(Math.sqrt(selectedList.length));
-    const spacing = aimAngle === null ? 2.6 : 2.8;
+    const spacing = aimAngle === null ? 2.0 : 2.2;
     const rowsCount = Math.ceil(selectedList.length / cols);
 
     selectedList.forEach((u, i) => {
@@ -316,9 +316,9 @@ export function createUnitSystem({
         setTimeout(() => u.plane && !u.plane.isDisposed() && u.plane.scaling.setAll(1), 90);
 
         if (u.def.id === "matchlock" || u.def.id === "cannon") {
-          spawnCombatFlash(u.pos, true, u.def.id === "cannon" ? 1.4 : 0.9);
+          spawnCombatFlash(u.pos, true, u.def.id === "cannon" ? 1.05 : 0.65);
         }
-        spawnCombatFlash(nearestEnemy.pos, false, u.def.id === "cannon" ? 1.5 : 0.65);
+        spawnCombatFlash(nearestEnemy.pos, false, u.def.id === "cannon" ? 1.1 : 0.5);
         soundManager.playUnitAttackSfx(u.def.id);
 
         if (nearestEnemy.hp <= 0) {
@@ -332,7 +332,7 @@ export function createUnitSystem({
           nearestEnemy.soldiers.forEach((s) => {
             s.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
             s.rotation.set(Math.PI / 2, 0, Math.random() * Math.PI);
-            s.position.y = 0.14;
+            s.position.y = 0.1;
             applyUnitSoldierState(s, nearestEnemy.def.id, nearestEnemy.team, true);
           });
         }
@@ -364,8 +364,8 @@ export function createUnitSystem({
         const sdx = u.pos.x - other.pos.x;
         const sdz = u.pos.z - other.pos.z;
         const sdist = Math.hypot(sdx, sdz);
-        if (sdist > 0.001 && sdist < 1.45) {
-          const push = (1.45 - sdist) * 1.4 * dt;
+        if (sdist > 0.001 && sdist < 1.15) {
+          const push = (1.15 - sdist) * 1.4 * dt;
           u.pos.x += (sdx / sdist) * push;
           u.pos.z += (sdz / sdist) * push;
         }

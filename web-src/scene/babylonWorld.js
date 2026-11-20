@@ -18,26 +18,26 @@ export function createBabylonWorld(canvas) {
     "cam",
     -Math.PI / 2,
     Math.PI / 4.2,
-    56,
+    78,
     BABYLON.Vector3.Zero(),
     scene
   );
   camera.attachControl(canvas, true);
   camera.lowerBetaLimit = 0.2;
   camera.upperBetaLimit = Math.PI / 2.25;
-  camera.lowerRadiusLimit = 10;
-  camera.upperRadiusLimit = 120;
+  camera.lowerRadiusLimit = 12;
+  camera.upperRadiusLimit = 165;
 
   new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
   const dirLight = new BABYLON.DirectionalLight("dir", new BABYLON.Vector3(-0.45, -1, -0.35), scene);
-  dirLight.position = new BABYLON.Vector3(20, 45, 20);
+  dirLight.position = new BABYLON.Vector3(25, 55, 25);
 
   // Outer linen backdrop
-  const backdrop = BABYLON.MeshBuilder.CreateGround("backdrop", { width: 220, height: 220, subdivisions: 2 }, scene);
+  const backdrop = BABYLON.MeshBuilder.CreateGround("backdrop", { width: 320, height: 320, subdivisions: 2 }, scene);
   backdrop.position.y = -0.18;
   const linenTex = new BABYLON.Texture("assets/Textures/Linen128x128.png", scene);
-  linenTex.uScale = 36;
-  linenTex.vScale = 36;
+  linenTex.uScale = 52;
+  linenTex.vScale = 52;
   const backdropMat = new BABYLON.StandardMaterial("backdropMat", scene);
   backdropMat.diffuseTexture = linenTex;
   backdropMat.diffuseColor = new BABYLON.Color3(0.72, 0.74, 0.78);
@@ -58,7 +58,7 @@ export function createBabylonWorld(canvas) {
 
   const rimRing = BABYLON.MeshBuilder.CreateTorus(
     "mapRim",
-    { diameter: MAP_DIAMETER, thickness: 0.28, tessellation: 72 },
+    { diameter: MAP_DIAMETER, thickness: 0.32, tessellation: 96 },
     scene
   );
   rimRing.position.y = 0.06;
@@ -107,7 +107,7 @@ export function createBabylonWorld(canvas) {
     }
   };
 
-  const createSpritePlane = (name, col, row, sizeX = 1.05, sizeY = 1.15, customTexture = null) => {
+  const createSpritePlane = (name, col, row, sizeX = 0.8, sizeY = 0.88, customTexture = null) => {
     const plane = BABYLON.MeshBuilder.CreatePlane(name, { width: sizeX, height: sizeY, updatable: true }, scene);
     plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
     plane.isPickable = false;
@@ -148,7 +148,7 @@ export function createBabylonWorld(canvas) {
   };
 
   // Cursor ring
-  const cursorRing = BABYLON.MeshBuilder.CreateTorus("cursorRing", { diameter: 1.5, thickness: 0.08, tessellation: 24 }, scene);
+  const cursorRing = BABYLON.MeshBuilder.CreateTorus("cursorRing", { diameter: 1.05, thickness: 0.06, tessellation: 24 }, scene);
   cursorRing.isPickable = false;
   cursorRing.setEnabled(false);
 
@@ -157,18 +157,18 @@ export function createBabylonWorld(canvas) {
   orderArrowMat.diffuseColor = new BABYLON.Color3(0.28, 0.24, 0.20);
   orderArrowMat.alpha = 0.55;
 
-  const orderShaft = BABYLON.MeshBuilder.CreateBox("orderShaft", { width: 1.5, height: 0.06, depth: 1 }, scene);
+  const orderShaft = BABYLON.MeshBuilder.CreateBox("orderShaft", { width: 1.2, height: 0.06, depth: 1 }, scene);
   orderShaft.material = orderArrowMat;
   orderShaft.isPickable = false;
   orderShaft.setEnabled(false);
 
-  const orderHead = BABYLON.MeshBuilder.CreateCylinder("orderHead", { diameterTop: 0.1, diameterBottom: 3.1, height: 2.2, tessellation: 3 }, scene);
+  const orderHead = BABYLON.MeshBuilder.CreateCylinder("orderHead", { diameterTop: 0.08, diameterBottom: 2.3, height: 1.7, tessellation: 3 }, scene);
   orderHead.rotation.x = Math.PI / 2;
   orderHead.material = orderArrowMat;
   orderHead.isPickable = false;
   orderHead.setEnabled(false);
 
-  const orderStar = BABYLON.MeshBuilder.CreateDisc("orderStar", { radius: 2.2, tessellation: 10 }, scene);
+  const orderStar = BABYLON.MeshBuilder.CreateDisc("orderStar", { radius: 1.6, tessellation: 10 }, scene);
   orderStar.rotation.x = Math.PI / 2;
   orderStar.material = orderArrowMat;
   orderStar.isPickable = false;
@@ -191,11 +191,11 @@ export function createBabylonWorld(canvas) {
     const angle = Math.atan2(dx, dz);
     const midX = (startPt.x + endPt.x) * 0.5;
     const midZ = (startPt.z + endPt.z) * 0.5;
-    const shaftLen = Math.max(0.5, len - 1.4);
+    const shaftLen = Math.max(0.5, len - 1.2);
 
     orderShaft.setEnabled(true);
     orderShaft.scaling.z = shaftLen;
-    orderShaft.position.set(midX - (dx / len) * 0.6, 0.14, midZ - (dz / len) * 0.6);
+    orderShaft.position.set(midX - (dx / len) * 0.5, 0.14, midZ - (dz / len) * 0.5);
     orderShaft.rotation.y = angle;
 
     orderHead.setEnabled(true);

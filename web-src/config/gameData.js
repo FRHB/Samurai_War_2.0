@@ -38,6 +38,6 @@ export const EDITOR_TOOLS = [
   { id: "erase", label: "Erase", icon: "images/editor-mode-erase.png" }
 ];
 
-export const MAP_RADIUS = 22;
+export const MAP_RADIUS = 34;
 export const MAP_DIAMETER = MAP_RADIUS * 2;
-export const GRID_SUBS = 72;
+export const GRID_SUBS = 96;
