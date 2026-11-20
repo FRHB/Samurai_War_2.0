@@ -66,9 +66,18 @@ export function createBabylonWorld(canvas) {
   rimMat.diffuseColor = new BABYLON.Color3(0.45, 0.42, 0.37);
   rimRing.material = rimMat;
 
-  // Billboards sprite sheet helpers
+  // Billboards sprite sheet helpers (shared material with per-mesh UV offsets)
   const billboardTex = new BABYLON.Texture("assets/Textures/Billboards.png", scene, false, false);
   billboardTex.hasAlpha = true;
+  billboardTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+  billboardTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+
+  const spriteMat = new BABYLON.StandardMaterial("billboardSpriteMat", scene);
+  spriteMat.diffuseTexture = billboardTex;
+  spriteMat.diffuseTexture.hasAlpha = true;
+  spriteMat.useAlphaFromDiffuseTexture = true;
+  spriteMat.backFaceCulling = false;
+  spriteMat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
 
   const setSpriteCell = (plane, col, row) => {
     const u0 = col / SPRITE_COLS;
@@ -76,28 +85,16 @@ export function createBabylonWorld(canvas) {
     const vTop = 1 - row / SPRITE_ROWS;
     const vBot = 1 - (row + 1) / SPRITE_ROWS;
 
-    const uvs = plane.getVerticesData(BABYLON.VertexBuffer.UVKind);
-    if (uvs) {
-      const mapped = [u1, vTop, u0, vTop, u0, vBot, u1, vBot];
-      for (let i = 0; i < mapped.length && i < uvs.length; i++) {
-        uvs[i] = mapped[i];
-      }
-      plane.updateVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
-    }
+    // Babylon CreatePlane vertex order: bottom-left (0), bottom-right (1), top-right (2), top-left (3)
+    const uvs = [u0, vBot, u1, vBot, u1, vTop, u0, vTop];
+    plane.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs, true);
   };
 
   const createSpritePlane = (name, col, row, sizeX = 1.05, sizeY = 1.15) => {
-    const plane = BABYLON.MeshBuilder.CreatePlane(name, { width: sizeX, height: sizeY }, scene);
+    const plane = BABYLON.MeshBuilder.CreatePlane(name, { width: sizeX, height: sizeY, updatable: true }, scene);
     plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
     plane.isPickable = false;
-
-    const mat = new BABYLON.StandardMaterial(`${name}_mat`, scene);
-    mat.diffuseTexture = billboardTex;
-    mat.diffuseTexture.hasAlpha = true;
-    mat.useAlphaFromDiffuseTexture = true;
-    mat.backFaceCulling = false;
-    mat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-    plane.material = mat;
+    plane.material = spriteMat;
 
     setSpriteCell(plane, col, row);
     return plane;
