@@ -8,6 +8,7 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
   const autoMapProps = [];
   let mapGrid = null;
   let activeMapPath = null;
+  let terrainLoadToken = 0;
 
   const clearAutoProps = () => {
     while (autoMapProps.length) autoMapProps.pop().dispose();
@@ -164,121 +165,222 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
     }
   };
 
+  // Procedural map layout fallback when external PNG map assets aren't present on disk
+  const drawProceduralMapCanvas = (mapPath, size) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = "#c9a078";
+    ctx.fillRect(0, 0, size, size);
+
+    const key = String(mapPath || "").toLowerCase();
+    const drawForestPatch = (cx, cy, r) => {
+      const grad = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, r);
+      grad.addColorStop(0, "rgba(58, 96, 52, 0.92)");
+      grad.addColorStop(0.7, "rgba(74, 114, 62, 0.65)");
+      grad.addColorStop(1, "rgba(201, 160, 120, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    const drawRiverPath = (points, width) => {
+      ctx.save();
+      ctx.strokeStyle = "rgba(76, 132, 186, 0.9)";
+      ctx.lineWidth = width;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      points.forEach(([px, py], idx) => {
+        if (idx === 0) ctx.moveTo(px * size, py * size);
+        else ctx.lineTo(px * size, py * size);
+      });
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    if (key.includes("map1")) {
+      // River Delta
+      drawRiverPath([[0.15, 0.05], [0.42, 0.38], [0.75, 0.92]], size * 0.11);
+      drawRiverPath([[0.42, 0.38], [0.22, 0.88]], size * 0.08);
+      drawForestPatch(size * 0.24, size * 0.32, size * 0.16);
+      drawForestPatch(size * 0.72, size * 0.56, size * 0.18);
+    } else if (key.includes("map2")) {
+      // Central Lake
+      ctx.fillStyle = "rgba(72, 128, 184, 0.92)";
+      ctx.beginPath();
+      ctx.arc(size * 0.5, size * 0.5, size * 0.17, 0, Math.PI * 2);
+      ctx.fill();
+      drawForestPatch(size * 0.25, size * 0.25, size * 0.15);
+      drawForestPatch(size * 0.76, size * 0.74, size * 0.16);
+    } else if (key.includes("map3") || key.includes("map4") || key.includes("map5")) {
+      // River / Two Rivers / Mountain River
+      drawRiverPath([[0.05, 0.52], [0.48, 0.45], [0.95, 0.56]], size * 0.1);
+      if (key.includes("map4")) {
+        drawRiverPath([[0.5, 0.05], [0.54, 0.5], [0.46, 0.95]], size * 0.09);
+      }
+      drawForestPatch(size * 0.3, size * 0.22, size * 0.16);
+      drawForestPatch(size * 0.68, size * 0.78, size * 0.16);
+    } else if (key.includes("map6") || key.includes("map7") || key.includes("map9")) {
+      // Mountains / The Stairs / Forest Hill
+      drawForestPatch(size * 0.35, size * 0.35, size * 0.2);
+      drawForestPatch(size * 0.68, size * 0.42, size * 0.18);
+      drawForestPatch(size * 0.5, size * 0.72, size * 0.17);
+    } else {
+      // Plains / Practice / Trench / Valley
+      drawForestPatch(size * 0.28, size * 0.35, size * 0.14);
+      drawForestPatch(size * 0.74, size * 0.65, size * 0.14);
+    }
+
+    return canvas;
+  };
+
+  const renderTerrainFromSource = (sourceCanvasOrImage, mapPath) => {
+    const size = 512;
+
+    const blurCanvas = document.createElement("canvas");
+    blurCanvas.width = size;
+    blurCanvas.height = size;
+    const bCtx = blurCanvas.getContext("2d");
+    bCtx.filter = "blur(8px)";
+    bCtx.drawImage(sourceCanvasOrImage, 0, 0, size, size);
+    bCtx.filter = "none";
+    const srcData = bCtx.getImageData(0, 0, size, size).data;
+
+    const hash2D = (ix, iy) => {
+      const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453123;
+      return n - Math.floor(n);
+    };
+
+    const smoothNoise = (x, y) => {
+      const ix = Math.floor(x);
+      const iy = Math.floor(y);
+      const fx = x - ix;
+      const fy = y - iy;
+      const ux = fx * fx * (3 - 2 * fx);
+      const uy = fy * fy * (3 - 2 * fy);
+
+      const a = hash2D(ix, iy);
+      const b = hash2D(ix + 1, iy);
+      const c = hash2D(ix, iy + 1);
+      const d = hash2D(ix + 1, iy + 1);
+
+      return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
+    };
+
+    const prevTex = groundMat.diffuseTexture;
+    const dynTex = new BABYLON.DynamicTexture("mapPaintTex", { width: size, height: size }, scene, true);
+    dynTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+    dynTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+    dynTex.updateSamplingMode(BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
+
+    const ctx = dynTex.getContext();
+    const outImg = ctx.createImageData(size, size);
+    const out = outImg.data;
+
+    const heightField = new Float32Array(size * size);
+    const terrainField = new Float32Array(size * size);
+
+    for (let py = 0; py < size; py++) {
+      for (let px = 0; px < size; px++) {
+        const i = (py * size + px) * 4;
+        const pIdx = py * size + px;
+        const r = srcData[i] / 255;
+        const g = srcData[i + 1] / 255;
+        const b = srcData[i + 2] / 255;
+
+        const waterScore = Math.max(0, Math.min(1, (b - Math.max(r, g * 0.9)) * 2.6));
+        const forestScore = Math.max(0, Math.min(1, (g - Math.max(r * 1.05, b * 1.05)) * 2.5));
+        const bankScore = Math.max(0, 1 - Math.abs(waterScore - 0.35) * 4.5) * (waterScore > 0.08 ? 1 : 0);
+
+        const nCoarse = smoothNoise(px * 0.02, py * 0.02) - 0.5;
+        const nFine = smoothNoise(px * 0.06 + 19.3, py * 0.06 + 47.7) - 0.5;
+        const grain = nCoarse * 0.028 + nFine * 0.01;
+
+        let cr = 0.79 + grain;
+        let cg = 0.63 + grain * 0.9;
+        let cb = 0.47 + grain * 0.8;
+
+        if (forestScore > 0.02) {
+          const f = forestScore;
+          cr = cr * (1 - f) + (0.36 + grain) * f;
+          cg = cg * (1 - f) + (0.52 + grain) * f;
+          cb = cb * (1 - f) + (0.34 + grain * 0.7) * f;
+        }
+
+        if (bankScore > 0.02) {
+          const k = bankScore * 0.55;
+          cr = cr * (1 - k) + 0.68 * k;
+          cg = cg * (1 - k) + 0.65 * k;
+          cb = cb * (1 - k) + 0.60 * k;
+        }
+        if (waterScore > 0.02) {
+          const w = waterScore;
+          cr = cr * (1 - w) + (0.48 + grain * 0.6) * w;
+          cg = cg * (1 - w) + (0.64 + grain * 0.7) * w;
+          cb = cb * (1 - w) + (0.76 + grain * 0.8) * w;
+        }
+
+        out[i] = Math.max(0, Math.min(255, Math.round(cr * 255)));
+        out[i + 1] = Math.max(0, Math.min(255, Math.round(cg * 255)));
+        out[i + 2] = Math.max(0, Math.min(255, Math.round(cb * 255)));
+        out[i + 3] = 255;
+
+        heightField[pIdx] = forestScore * 0.55 - waterScore * 0.35;
+        terrainField[pIdx] = waterScore > forestScore ? waterScore : -forestScore;
+      }
+    }
+
+    ctx.putImageData(outImg, 0, 0);
+    dynTex.update(true);
+    mapGrid = { size, heightField, terrainField };
+
+    groundMat.diffuseTexture = dynTex;
+    groundMat.diffuseTexture.uScale = 1;
+    groundMat.diffuseTexture.vScale = 1;
+    if (prevTex && prevTex !== dynTex && typeof prevTex.dispose === "function") {
+      prevTex.dispose();
+    }
+
+    restoreSavedZonesForMap(mapPath);
+    onTerrainChanged?.();
+  };
+
   const buildTerrainFromMap = (mapPath) => {
     activeMapPath = mapPath;
     clearAutoProps();
-    const img = new Image();
-    img.src = mapPath;
-    img.onload = () => {
-      const size = 512;
+    const token = ++terrainLoadToken;
 
-      const blurCanvas = document.createElement("canvas");
-      blurCanvas.width = size;
-      blurCanvas.height = size;
-      const bCtx = blurCanvas.getContext("2d");
-      bCtx.filter = "blur(8px)";
-      bCtx.drawImage(img, 0, 0, size, size);
-      bCtx.filter = "none";
-      const srcData = bCtx.getImageData(0, 0, size, size).data;
+    const candidateUrls = [
+      mapPath,
+      mapPath?.startsWith("/") ? mapPath.slice(1) : `/${mapPath}`,
+      mapPath?.startsWith("assets/") ? `web-src/${mapPath}` : null,
+      mapPath?.startsWith("assets/") ? `www/${mapPath}` : null
+    ].filter(Boolean);
 
-      const hash2D = (ix, iy) => {
-        const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453123;
-        return n - Math.floor(n);
-      };
-
-      const smoothNoise = (x, y) => {
-        const ix = Math.floor(x);
-        const iy = Math.floor(y);
-        const fx = x - ix;
-        const fy = y - iy;
-        const ux = fx * fx * (3 - 2 * fx);
-        const uy = fy * fy * (3 - 2 * fy);
-
-        const a = hash2D(ix, iy);
-        const b = hash2D(ix + 1, iy);
-        const c = hash2D(ix, iy + 1);
-        const d = hash2D(ix + 1, iy + 1);
-
-        return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
-      };
-
-      const prevTex = groundMat.diffuseTexture;
-      const dynTex = new BABYLON.DynamicTexture("mapPaintTex", { width: size, height: size }, scene, true);
-      dynTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
-      dynTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
-      dynTex.updateSamplingMode(BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
-
-      const ctx = dynTex.getContext();
-      const outImg = ctx.createImageData(size, size);
-      const out = outImg.data;
-
-      const heightField = new Float32Array(size * size);
-      const terrainField = new Float32Array(size * size);
-
-      for (let py = 0; py < size; py++) {
-        for (let px = 0; px < size; px++) {
-          const i = (py * size + px) * 4;
-          const pIdx = py * size + px;
-          const r = srcData[i] / 255;
-          const g = srcData[i + 1] / 255;
-          const b = srcData[i + 2] / 255;
-
-          const waterScore = Math.max(0, Math.min(1, (b - Math.max(r, g * 0.9)) * 2.6));
-          const forestScore = Math.max(0, Math.min(1, (g - Math.max(r * 1.05, b * 1.05)) * 2.5));
-          const bankScore = Math.max(0, 1 - Math.abs(waterScore - 0.35) * 4.5) * (waterScore > 0.08 ? 1 : 0);
-
-          const nCoarse = smoothNoise(px * 0.02, py * 0.02) - 0.5;
-          const nFine = smoothNoise(px * 0.06 + 19.3, py * 0.06 + 47.7) - 0.5;
-          const grain = nCoarse * 0.028 + nFine * 0.01;
-
-          let cr = 0.79 + grain;
-          let cg = 0.63 + grain * 0.9;
-          let cb = 0.47 + grain * 0.8;
-
-          if (forestScore > 0.02) {
-            const f = forestScore;
-            cr = cr * (1 - f) + (0.36 + grain) * f;
-            cg = cg * (1 - f) + (0.52 + grain) * f;
-            cb = cb * (1 - f) + (0.34 + grain * 0.7) * f;
-          }
-
-          if (bankScore > 0.02) {
-            const k = bankScore * 0.55;
-            cr = cr * (1 - k) + 0.68 * k;
-            cg = cg * (1 - k) + 0.65 * k;
-            cb = cb * (1 - k) + 0.60 * k;
-          }
-          if (waterScore > 0.02) {
-            const w = waterScore;
-            cr = cr * (1 - w) + (0.48 + grain * 0.6) * w;
-            cg = cg * (1 - w) + (0.64 + grain * 0.7) * w;
-            cb = cb * (1 - w) + (0.76 + grain * 0.8) * w;
-          }
-
-          out[i] = Math.max(0, Math.min(255, Math.round(cr * 255)));
-          out[i + 1] = Math.max(0, Math.min(255, Math.round(cg * 255)));
-          out[i + 2] = Math.max(0, Math.min(255, Math.round(cb * 255)));
-          out[i + 3] = 255;
-
-          heightField[pIdx] = forestScore * 0.55 - waterScore * 0.35;
-          terrainField[pIdx] = waterScore > forestScore ? waterScore : -forestScore;
-        }
+    const tryCandidate = (idx) => {
+      if (token !== terrainLoadToken) return;
+      if (idx >= candidateUrls.length) {
+        renderTerrainFromSource(drawProceduralMapCanvas(mapPath, 256), mapPath);
+        return;
       }
 
-      ctx.putImageData(outImg, 0, 0);
-      dynTex.update(true);
-      mapGrid = { size, heightField, terrainField };
-
-      groundMat.diffuseTexture = dynTex;
-      groundMat.diffuseTexture.uScale = 1;
-      groundMat.diffuseTexture.vScale = 1;
-      if (prevTex && prevTex !== dynTex && typeof prevTex.dispose === "function") {
-        prevTex.dispose();
-      }
-
-      restoreSavedZonesForMap(mapPath);
-      onTerrainChanged?.();
+      const img = new Image();
+      img.onload = () => {
+        if (token !== terrainLoadToken) return;
+        renderTerrainFromSource(img, mapPath);
+      };
+      img.onerror = () => {
+        if (token !== terrainLoadToken) return;
+        tryCandidate(idx + 1);
+      };
+      img.src = candidateUrls[idx];
     };
+
+    tryCandidate(0);
   };
 
   const spawnTerrainFeature = (point, tool) => {

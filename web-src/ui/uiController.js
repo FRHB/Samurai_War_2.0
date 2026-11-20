@@ -30,13 +30,16 @@ export function createUiController({
   const redCountEl = document.getElementById("redCount");
   const blueCountEl = document.getElementById("blueCount");
 
-  MAPS.forEach((m) => {
-    const opt = document.createElement("option");
-    opt.value = m.path;
-    opt.textContent = m.label;
-    mapSelect.appendChild(opt);
-  });
-  mapSelect.value = MAPS[1].path;
+  if (mapSelect) {
+    mapSelect.innerHTML = "";
+    MAPS.forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = m.path;
+      opt.textContent = m.label;
+      mapSelect.appendChild(opt);
+    });
+    mapSelect.value = MAPS[1]?.path || MAPS[0]?.path || "";
+  }
 
   const sizeSelect = document.createElement("select");
   sizeSelect.id = "unitSizeSelect";
@@ -58,44 +61,48 @@ export function createUiController({
   }
 
   let activeUnitBtn = null;
-  UNITS.forEach((u, idx) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "unit-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition";
-    btn.innerHTML = `<img src="${u.icon}" alt="${u.label}" class="w-4 h-4 object-contain" onerror="this.style.display='none'" /><span>${u.label}</span>`;
-    btn.addEventListener("click", () => {
-      if (activeUnitBtn) activeUnitBtn.classList.remove("ring-2", "ring-amber-400", "bg-slate-700");
-      activeUnitBtn = btn;
-      btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
-      onSelectUnitDef(u);
-      soundManager.playSfx(soundManager.sfx.select);
+  if (unitRosterBar) {
+    UNITS.forEach((u, idx) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "unit-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition";
+      btn.innerHTML = `<img src="${u.icon}" alt="${u.label}" class="w-4 h-4 object-contain" onerror="this.style.display='none'" /><span>${u.label}</span>`;
+      btn.addEventListener("click", () => {
+        if (activeUnitBtn) activeUnitBtn.classList.remove("ring-2", "ring-amber-400", "bg-slate-700");
+        activeUnitBtn = btn;
+        btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+        onSelectUnitDef(u);
+        soundManager.playSfx(soundManager.sfx.select);
+      });
+      if (idx === 0) {
+        activeUnitBtn = btn;
+        btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+      }
+      unitRosterBar.appendChild(btn);
     });
-    if (idx === 0) {
-      activeUnitBtn = btn;
-      btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
-    }
-    unitRosterBar.appendChild(btn);
-  });
+  }
 
   let activeToolBtn = null;
-  EDITOR_TOOLS.forEach((t, idx) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "editor-tool-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition";
-    btn.innerHTML = `<img src="${t.icon}" alt="${t.label}" class="w-4 h-4 object-contain" onerror="this.style.display='none'" /><span>${t.label}</span>`;
-    btn.addEventListener("click", () => {
-      if (activeToolBtn) activeToolBtn.classList.remove("ring-2", "ring-amber-400", "bg-slate-700");
-      activeToolBtn = btn;
-      btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
-      onSelectEditorTool(t);
-      soundManager.playSfx(soundManager.sfx.select);
+  if (editorToolBar) {
+    EDITOR_TOOLS.forEach((t, idx) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "editor-tool-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition";
+      btn.innerHTML = `<img src="${t.icon}" alt="${t.label}" class="w-4 h-4 object-contain" onerror="this.style.display='none'" /><span>${t.label}</span>`;
+      btn.addEventListener("click", () => {
+        if (activeToolBtn) activeToolBtn.classList.remove("ring-2", "ring-amber-400", "bg-slate-700");
+        activeToolBtn = btn;
+        btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+        onSelectEditorTool(t);
+        soundManager.playSfx(soundManager.sfx.select);
+      });
+      if (idx === 1) {
+        activeToolBtn = btn;
+        btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
+      }
+      editorToolBar.appendChild(btn);
     });
-    if (idx === 1) {
-      activeToolBtn = btn;
-      btn.classList.add("ring-2", "ring-amber-400", "bg-slate-700");
-    }
-    editorToolBar.appendChild(btn);
-  });
+  }
 
   const setActiveModeButton = (mode) => {
     for (const b of [modeSandboxBtn, modePracticeBtn, modeEditorBtn]) {
@@ -201,7 +208,7 @@ export function createUiController({
   });
 
   return {
-    getSelectedMapPath: () => mapSelect.value,
+    getSelectedMapPath: () => mapSelect?.value || MAPS[1]?.path || MAPS[0]?.path || "",
     syncActionButtons,
     updateTerrainHint: (label) => {
       if (terrainHint) terrainHint.textContent = `Terrain: ${label}`;
