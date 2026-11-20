@@ -80,11 +80,11 @@ export function createUnitSystem({
   const createHpBar = (root, team) => {
     const barHolder = new BABYLON.TransformNode(`hpHolder_${Date.now()}_${Math.random()}`, scene);
     barHolder.parent = root;
-    barHolder.position.set(0, 1.62, 0);
+    barHolder.position.set(0, 1.85, 0);
     barHolder.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
 
-    const width = 1.05;
-    const height = 0.11;
+    const width = 1.1;
+    const height = 0.12;
 
     const bgMesh = BABYLON.MeshBuilder.CreatePlane("hpBg", { width, height }, scene);
     bgMesh.parent = barHolder;
@@ -112,7 +112,7 @@ export function createUnitSystem({
     if (!unitObj.hpBar) return;
     const ratio = Math.max(0, Math.min(1, unitObj.hp / unitObj.maxHp));
     unitObj.hpBar.fillMesh.scaling.x = Math.max(0.001, ratio);
-    unitObj.hpBar.fillMesh.position.x = -(1 - ratio) * 0.505;
+    unitObj.hpBar.fillMesh.position.x = -(1 - ratio) * 0.53;
     if (ratio <= 0.3) {
       unitObj.hpBar.fillMat.diffuseColor.set(0.95, 0.2, 0.15);
     } else if (ratio <= 0.6) {
@@ -128,7 +128,7 @@ export function createUnitSystem({
     const plane = BABYLON.MeshBuilder.CreatePlane("marker", { size: 1.05 }, scene);
     plane.parent = root;
     plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
-    plane.position.y = 1.05;
+    plane.position.y = 1.25;
 
     const mat = new BABYLON.StandardMaterial(`mat_${unitDef.id}_${team}_${Date.now()}`, scene);
     mat.diffuseTexture = await getMarkerTexture(unitDef, team);
@@ -150,8 +150,8 @@ export function createUnitSystem({
     for (let i = 0; i < unitDef.squadSize; i++) {
       const r = Math.floor(i / cols);
       const c = i % cols;
-      const lx = (c - (cols - 1) / 2) * 0.65;
-      const lz = 0.85 + r * 0.65;
+      const lx = (c - (cols - 1) / 2) * 0.72;
+      const lz = 0.85 + r * 0.72;
 
       const spriteCol = isMounted
         ? 5 + (i % 3)
@@ -161,11 +161,11 @@ export function createUnitSystem({
 
       const fallenCol = isMounted ? (i % 8) : (isHeavyInfantry ? 4 + (i % 4) : (i % 4));
 
-      const spriteW = isMounted ? 1.45 : 1.25;
-      const spriteH = isMounted ? 1.45 : 1.35;
+      const spriteW = isMounted ? 1.5 : 1.3;
+      const spriteH = isMounted ? 1.5 : 1.4;
       const sm = createSpritePlane(`s_${i}`, spriteCol, aliveRow, spriteW, spriteH);
       sm.parent = root;
-      sm.position.set(lx, spriteH * 0.5 + 0.04, lz);
+      sm.position.set(lx, spriteH * 0.5 + 0.06, lz);
       sm.metadata = { aliveCol: spriteCol, aliveRow, fallenCol, fallenRow, fallen: false };
       soldiers.push(sm);
     }
