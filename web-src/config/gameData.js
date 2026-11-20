@@ -16,17 +16,26 @@ export const MAPS = [
   { label: "Valley of Death", path: "assets/Maps/Map12.png" }
 ];
 
+export const UNIT_SIZE_OPTIONS = [
+  { id: "squad", label: "Squad (10)", soldiers: 10 },
+  { id: "platoon", label: "Platoon (50)", soldiers: 50 },
+  { id: "company", label: "Company (100)", soldiers: 100 },
+  { id: "battalion", label: "Battalion (250)", soldiers: 250 },
+  { id: "army", label: "Army (500)", soldiers: 500 }
+];
+
+// Each unit archetype defines per-soldier stats (1 unit = 1 soldier entity)
 export const UNITS = [
-  { id: "ashigaru", label: "Ashigaru", icon: "images/select-ashigaru.png", squadSize: 16, hp: 160, dmg: 14, range: 2.3, speed: 3.4, cd: 1.0, role: "line" },
-  { id: "bow", label: "Bow", icon: "images/select-bow.png", squadSize: 14, hp: 110, dmg: 16, range: 13.5, speed: 3.2, cd: 1.45, ranged: true, role: "ranged" },
-  { id: "cannon", label: "Cannon", icon: "images/select-cannon.png", squadSize: 4, hp: 150, dmg: 42, range: 17.5, speed: 1.7, cd: 2.7, ranged: true, role: "artillery" },
-  { id: "cavalry", label: "Cavalry", icon: "images/select-cavalry.png", squadSize: 10, hp: 210, dmg: 26, range: 2.7, speed: 6.6, cd: 0.9, role: "cavalry" },
-  { id: "general", label: "General", icon: "images/select-general.png", squadSize: 6, hp: 320, dmg: 30, range: 2.9, speed: 4.5, cd: 0.85, role: "elite" },
-  { id: "katana", label: "Katana", icon: "images/select-katana.png", squadSize: 12, hp: 180, dmg: 24, range: 2.2, speed: 4.3, cd: 0.85, role: "shock" },
-  { id: "matchlock", label: "Matchlock", icon: "images/select-matchlock.png", squadSize: 12, hp: 115, dmg: 28, range: 12.0, speed: 2.9, cd: 2.0, ranged: true, role: "ranged" },
-  { id: "naginata", label: "Naginata", icon: "images/select-naginata.png", squadSize: 14, hp: 195, dmg: 21, range: 2.9, speed: 3.9, cd: 0.95, role: "antiCav" },
-  { id: "samurai", label: "Samurai", icon: "images/select-samurai.png", squadSize: 10, hp: 250, dmg: 29, range: 2.5, speed: 4.5, cd: 0.85, role: "elite" },
-  { id: "yari", label: "Yari", icon: "images/select-yari.png", squadSize: 16, hp: 185, dmg: 19, range: 3.2, speed: 3.5, cd: 1.0, role: "antiCav" }
+  { id: "ashigaru", label: "Ashigaru", icon: "images/select-ashigaru.png", hp: 45, dmg: 6, armor: 3, morale: 65, sightRange: 18, range: 2.3, speed: 3.4, cd: 1.0, role: "line" },
+  { id: "bow", label: "Bow", icon: "images/select-bow.png", hp: 32, dmg: 7, armor: 1, morale: 60, sightRange: 24, range: 13.5, speed: 3.2, cd: 1.45, ranged: true, role: "ranged" },
+  { id: "cannon", label: "Cannon", icon: "images/select-cannon.png", hp: 65, dmg: 22, armor: 5, morale: 70, sightRange: 26, range: 17.5, speed: 1.7, cd: 2.7, ranged: true, role: "artillery" },
+  { id: "cavalry", label: "Cavalry", icon: "images/select-cavalry.png", hp: 62, dmg: 11, armor: 6, morale: 78, sightRange: 22, range: 2.7, speed: 6.6, cd: 0.9, role: "cavalry" },
+  { id: "general", label: "General", icon: "images/select-general.png", hp: 110, dmg: 15, armor: 11, morale: 95, sightRange: 24, range: 2.9, speed: 4.5, cd: 0.85, role: "elite" },
+  { id: "katana", label: "Katana", icon: "images/select-katana.png", hp: 54, dmg: 10, armor: 6, morale: 80, sightRange: 19, range: 2.2, speed: 4.3, cd: 0.85, role: "shock" },
+  { id: "matchlock", label: "Matchlock", icon: "images/select-matchlock.png", hp: 34, dmg: 11, armor: 2, morale: 62, sightRange: 23, range: 12.0, speed: 2.9, cd: 2.0, ranged: true, role: "ranged" },
+  { id: "naginata", label: "Naginata", icon: "images/select-naginata.png", hp: 58, dmg: 9, armor: 7, morale: 76, sightRange: 19, range: 2.9, speed: 3.9, cd: 0.95, role: "antiCav" },
+  { id: "samurai", label: "Samurai", icon: "images/select-samurai.png", hp: 75, dmg: 12, armor: 9, morale: 88, sightRange: 20, range: 2.5, speed: 4.5, cd: 0.85, role: "elite" },
+  { id: "yari", label: "Yari", icon: "images/select-yari.png", hp: 52, dmg: 8, armor: 5, morale: 70, sightRange: 18, range: 3.2, speed: 3.5, cd: 1.0, role: "antiCav" }
 ];
 
 export const EDITOR_TOOLS = [
@@ -38,6 +47,6 @@ export const EDITOR_TOOLS = [
   { id: "erase", label: "Erase", icon: "images/editor-mode-erase.png" }
 ];
 
-export const MAP_RADIUS = 22;
+export const MAP_RADIUS = 52;
 export const MAP_DIAMETER = MAP_RADIUS * 2;
-export const GRID_SUBS = 72;
+export const GRID_SUBS = 128;

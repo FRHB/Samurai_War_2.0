@@ -1,10 +1,14 @@
 import * as BABYLON from "@babylonjs/core";
 import { MAP_RADIUS } from "../config/gameData.js";
 
+const EDITOR_STORAGE_KEY = "samuraiWars2_editorZones_v1";
+
 export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTerrainChanged }) {
   const terrainZones = [];
   const autoMapProps = [];
   let mapGrid = null;
+  let activeMapPath = null;
+  let terrainLoadToken = 0;
 
   const clearAutoProps = () => {
     while (autoMapProps.length) autoMapProps.pop().dispose();
@@ -68,176 +72,341 @@ export function createTerrainSystem({ scene, groundMat, createSpritePlane, onTer
     return { type: "plains", label: "Plains (Normal)", speedMult: 1.0, rangedDefMult: 1.0, atkMult: 1.0 };
   };
 
-const buildTerrainFromMap = (mapPath) => {
-    clearAutoProps();
-    const img = new Image();
-    img.src = mapPath;
-    img.onload = () => {
-      const size = 256;
+  const readAllSavedZones = () => {
+    try {
+      const raw = localStorage.getItem(EDITOR_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
 
-      const blurCanvas = document.createElement("canvas");
-      blurCanvas.width = size;
-      blurCanvas.height = size;
-      const bCtx = blurCanvas.getContext("2d");
-      bCtx.filter = "blur(6px)";
-      bCtx.drawImage(img, 0, 0, size, size);
-      bCtx.filter = "none";
-      const srcData = bCtx.getImageData(0, 0, size, size).data;
-
-      // Smooth bilinear noise helper so terrain variation has no high-freq grid/dot aliasing
-      const hash2D = (ix, iy) => {
-        const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453123;
-        return n - Math.floor(n);
-      };
-
-      const smoothNoise = (x, y) => {
-        const ix = Math.floor(x);
-        const iy = Math.floor(y);
-        const fx = x - ix;
-        const fy = y - iy;
-        const ux = fx * fx * (3 - 2 * fx);
-        const uy = fy * fy * (3 - 2 * fy);
-
-        const a = hash2D(ix, iy);
-        const b = hash2D(ix + 1, iy);
-        const c = hash2D(ix, iy + 1);
-        const d = hash2D(ix + 1, iy + 1);
-
-        return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
-      };
-
-      // Enable mipmaps (4th arg = true) so angled/distant ground doesn't alias into dots/lines
-      const dynTex = new BABYLON.DynamicTexture("mapPaintTex", { width: size, height: size }, scene, true);
-      dynTex.updateSamplingMode(BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
-
-      const ctx = dynTex.getContext();
-      const outImg = ctx.createImageData(size, size);
-      const out = outImg.data;
-
-      const heightField = new Float32Array(size * size);
-      const terrainField = new Float32Array(size * size);
-
-      for (let py = 0; py < size; py++) {
-        for (let px = 0; px < size; px++) {
-          const i = (py * size + px) * 4;
-          const pIdx = py * size + px;
-          const r = srcData[i] / 255;
-          const g = srcData[i + 1] / 255;
-          const b = srcData[i + 2] / 255;
-
-          const waterScore = Math.max(0, Math.min(1, (b - Math.max(r, g * 0.9)) * 2.6));
-          const forestScore = Math.max(0, Math.min(1, (g - Math.max(r * 1.05, b * 1.05)) * 2.5));
-          const bankScore = Math.max(0, 1 - Math.abs(waterScore - 0.35) * 4.5) * (waterScore > 0.08 ? 1 : 0);
-
-          // Low-frequency organic variation instead of high-frequency sin/cos grid lines
-          const nCoarse = smoothNoise(px * 0.04, py * 0.04) - 0.5;
-          const nFine = smoothNoise(px * 0.12 + 19.3, py * 0.12 + 47.7) - 0.5;
-          const grain = nCoarse * 0.04 + nFine * 0.015;
-
-          let cr = 0.79 + grain;
-          let cg = 0.63 + grain * 0.9;
-          let cb = 0.47 + grain * 0.8;
-
-          if (forestScore > 0.02) {
-            const f = forestScore;
-            cr = cr * (1 - f) + (0.36 + grain) * f;
-            cg = cg * (1 - f) + (0.52 + grain) * f;
-            cb = cb * (1 - f) + (0.34 + grain * 0.7) * f;
-          }
-
-          if (bankScore > 0.02) {
-            const k = bankScore * 0.55;
-            cr = cr * (1 - k) + 0.68 * k;
-            cg = cg * (1 - k) + 0.65 * k;
-            cb = cb * (1 - k) + 0.60 * k;
-          }
-          if (waterScore > 0.02) {
-            const w = waterScore;
-            cr = cr * (1 - w) + (0.48 + grain * 0.6) * w;
-            cg = cg * (1 - w) + (0.64 + grain * 0.7) * w;
-            cb = cb * (1 - w) + (0.76 + grain * 0.8) * w;
-          }
-
-          out[i] = Math.max(0, Math.min(255, Math.round(cr * 255)));
-          out[i + 1] = Math.max(0, Math.min(255, Math.round(cg * 255)));
-          out[i + 2] = Math.max(0, Math.min(255, Math.round(cb * 255)));
-          out[i + 3] = 255;
-
-          heightField[pIdx] = forestScore * 0.55 - waterScore * 0.35;
-          terrainField[pIdx] = waterScore > forestScore ? waterScore : -forestScore;
-        }
+  const persistEditorZones = () => {
+    if (!activeMapPath) return;
+    try {
+      const all = readAllSavedZones();
+      const serializable = terrainZones.map((z) => ({
+        kind: z.kind,
+        x: z.x,
+        z: z.z,
+        radius: z.radius,
+        color: z.color
+          ? { r: z.color.r, g: z.color.g, b: z.color.b }
+          : null
+      }));
+      if (serializable.length) {
+        all[activeMapPath] = serializable;
+      } else {
+        delete all[activeMapPath];
       }
+      localStorage.setItem(EDITOR_STORAGE_KEY, JSON.stringify(all));
+    } catch {
+      // Ignore storage quota or private-mode errors
+    }
+  };
 
-      ctx.putImageData(outImg, 0, 0);
-      dynTex.update(true);
-      mapGrid = { size, heightField, terrainField };
+  const buildFeatureMesh = (point, kind, radius, colorVal) => {
+    const baseY = getGroundHeightAt(point.x, point.z);
+    let mesh;
+    if (kind === "hills") {
+      mesh = BABYLON.MeshBuilder.CreateSphere(`hill_${Date.now()}_${Math.random()}`, { diameterX: radius * 2, diameterY: 2.1, diameterZ: radius * 2 }, scene);
+      mesh.position = new BABYLON.Vector3(point.x, baseY + 0.35, point.z);
+    } else if (kind === "trees") {
+      mesh = createSpritePlane(`editorTree_${Date.now()}_${Math.random()}`, Math.floor(Math.random() * 8), 0, 1.5, 1.5);
+      mesh.position = new BABYLON.Vector3(point.x, baseY + 0.72, point.z);
+    } else {
+      mesh = BABYLON.MeshBuilder.CreateDisc(`${kind}_${Date.now()}_${Math.random()}`, { radius, tessellation: 24 }, scene);
+      mesh.rotation.x = Math.PI / 2;
+      mesh.position = new BABYLON.Vector3(point.x, baseY + 0.05, point.z);
+    }
 
-      groundMat.diffuseTexture = dynTex;
-      groundMat.diffuseTexture.uScale = 1;
-      groundMat.diffuseTexture.vScale = 1;
+    if (kind !== "trees") {
+      const mat = new BABYLON.StandardMaterial(`mat_${kind}_${Date.now()}_${Math.random()}`, scene);
+      const col = colorVal instanceof BABYLON.Color3
+        ? colorVal
+        : colorVal && typeof colorVal.r === "number"
+          ? new BABYLON.Color3(colorVal.r, colorVal.g, colorVal.b)
+          : new BABYLON.Color3(0.5, 0.5, 0.5);
+      mat.diffuseColor = col;
+      mat.alpha = kind === "water" || kind === "fords" ? 0.72 : 0.92;
+      mesh.material = mat;
+    }
 
-      let seed = 1337;
-      const rand = () => {
-        seed = (seed * 16807) % 2147483647;
-        return (seed - 1) / 2147483646;
-      };
+    return mesh;
+  };
 
-      for (let py = 8; py < size - 8; py += 9) {
-        for (let px = 8; px < size - 8; px += 9) {
-          const pIdx = py * size + px;
-          if (terrainField[pIdx] < -0.45 && rand() < 0.72) {
-            const jitterX = (rand() - 0.5) * 1.4;
-            const jitterZ = (rand() - 0.5) * 1.4;
-            const wx = ((px / size) * 2 - 1) * (MAP_RADIUS * 0.92) + jitterX;
-            const wz = (1 - (py / size) * 2) * (MAP_RADIUS * 0.92) + jitterZ;
-            if (Math.hypot(wx, wz) > MAP_RADIUS - 1.3) continue;
-            const wy = getGroundHeightAt(wx, wz);
-            const scale = 0.85 + rand() * 0.45;
-            const treeSprite = createSpritePlane(`tree_${px}_${py}`, Math.floor(rand() * 8), 0, 1.3 * scale, 1.3 * scale);
-            treeSprite.position.set(wx, wy + 0.55 * scale, wz);
-            autoMapProps.push(treeSprite);
-          }
-        }
-      }
+  const clearTerrainZones = ({ persist = true } = {}) => {
+    while (terrainZones.length) {
+      const zone = terrainZones.pop();
+      zone.mesh?.material?.dispose?.();
+      zone.mesh?.dispose?.();
+    }
+    if (persist) persistEditorZones();
+  };
 
-      onTerrainChanged?.();
+  const restoreSavedZonesForMap = (mapPath) => {
+    clearTerrainZones({ persist: false });
+    const all = readAllSavedZones();
+    const saved = Array.isArray(all[mapPath]) ? all[mapPath] : [];
+    for (const item of saved) {
+      if (!item || typeof item.x !== "number" || typeof item.z !== "number") continue;
+      const radius = typeof item.radius === "number" ? item.radius : (item.kind === "hills" ? 4.2 : item.kind === "water" ? 3.8 : 2.8);
+      const mesh = buildFeatureMesh({ x: item.x, z: item.z }, item.kind, radius, item.color);
+      terrainZones.push({
+        kind: item.kind,
+        x: item.x,
+        z: item.z,
+        radius,
+        color: item.color ? new BABYLON.Color3(item.color.r, item.color.g, item.color.b) : null,
+        mesh
+      });
+    }
+  };
+
+  // Procedural map layout fallback when external PNG map assets aren't present on disk
+  const drawProceduralMapCanvas = (mapPath, size) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = "#c9a078";
+    ctx.fillRect(0, 0, size, size);
+
+    const key = String(mapPath || "").toLowerCase();
+    const drawForestPatch = (cx, cy, r) => {
+      const grad = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, r);
+      grad.addColorStop(0, "rgba(58, 96, 52, 0.92)");
+      grad.addColorStop(0.7, "rgba(74, 114, 62, 0.65)");
+      grad.addColorStop(1, "rgba(201, 160, 120, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
     };
+
+    const drawRiverPath = (points, width) => {
+      ctx.save();
+      ctx.strokeStyle = "rgba(76, 132, 186, 0.9)";
+      ctx.lineWidth = width;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      points.forEach(([px, py], idx) => {
+        if (idx === 0) ctx.moveTo(px * size, py * size);
+        else ctx.lineTo(px * size, py * size);
+      });
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    if (key.includes("map1")) {
+      // River Delta
+      drawRiverPath([[0.15, 0.05], [0.42, 0.38], [0.75, 0.92]], size * 0.11);
+      drawRiverPath([[0.42, 0.38], [0.22, 0.88]], size * 0.08);
+      drawForestPatch(size * 0.24, size * 0.32, size * 0.16);
+      drawForestPatch(size * 0.72, size * 0.56, size * 0.18);
+    } else if (key.includes("map2")) {
+      // Central Lake
+      ctx.fillStyle = "rgba(72, 128, 184, 0.92)";
+      ctx.beginPath();
+      ctx.arc(size * 0.5, size * 0.5, size * 0.17, 0, Math.PI * 2);
+      ctx.fill();
+      drawForestPatch(size * 0.25, size * 0.25, size * 0.15);
+      drawForestPatch(size * 0.76, size * 0.74, size * 0.16);
+    } else if (key.includes("map3") || key.includes("map4") || key.includes("map5")) {
+      // River / Two Rivers / Mountain River
+      drawRiverPath([[0.05, 0.52], [0.48, 0.45], [0.95, 0.56]], size * 0.1);
+      if (key.includes("map4")) {
+        drawRiverPath([[0.5, 0.05], [0.54, 0.5], [0.46, 0.95]], size * 0.09);
+      }
+      drawForestPatch(size * 0.3, size * 0.22, size * 0.16);
+      drawForestPatch(size * 0.68, size * 0.78, size * 0.16);
+    } else if (key.includes("map6") || key.includes("map7") || key.includes("map9")) {
+      // Mountains / The Stairs / Forest Hill
+      drawForestPatch(size * 0.35, size * 0.35, size * 0.2);
+      drawForestPatch(size * 0.68, size * 0.42, size * 0.18);
+      drawForestPatch(size * 0.5, size * 0.72, size * 0.17);
+    } else {
+      // Plains / Practice / Trench / Valley
+      drawForestPatch(size * 0.28, size * 0.35, size * 0.14);
+      drawForestPatch(size * 0.74, size * 0.65, size * 0.14);
+    }
+
+    return canvas;
+  };
+
+  const renderTerrainFromSource = (sourceCanvasOrImage, mapPath) => {
+    const size = 512;
+
+    const blurCanvas = document.createElement("canvas");
+    blurCanvas.width = size;
+    blurCanvas.height = size;
+    const bCtx = blurCanvas.getContext("2d");
+    bCtx.filter = "blur(8px)";
+    bCtx.drawImage(sourceCanvasOrImage, 0, 0, size, size);
+    bCtx.filter = "none";
+    const srcData = bCtx.getImageData(0, 0, size, size).data;
+
+    const hash2D = (ix, iy) => {
+      const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453123;
+      return n - Math.floor(n);
+    };
+
+    const smoothNoise = (x, y) => {
+      const ix = Math.floor(x);
+      const iy = Math.floor(y);
+      const fx = x - ix;
+      const fy = y - iy;
+      const ux = fx * fx * (3 - 2 * fx);
+      const uy = fy * fy * (3 - 2 * fy);
+
+      const a = hash2D(ix, iy);
+      const b = hash2D(ix + 1, iy);
+      const c = hash2D(ix, iy + 1);
+      const d = hash2D(ix + 1, iy + 1);
+
+      return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
+    };
+
+    const prevTex = groundMat.diffuseTexture;
+    const dynTex = new BABYLON.DynamicTexture("mapPaintTex", { width: size, height: size }, scene, true);
+    dynTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+    dynTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+    dynTex.updateSamplingMode(BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
+
+    const ctx = dynTex.getContext();
+    const outImg = ctx.createImageData(size, size);
+    const out = outImg.data;
+
+    const heightField = new Float32Array(size * size);
+    const terrainField = new Float32Array(size * size);
+
+    for (let py = 0; py < size; py++) {
+      for (let px = 0; px < size; px++) {
+        const i = (py * size + px) * 4;
+        const pIdx = py * size + px;
+        const r = srcData[i] / 255;
+        const g = srcData[i + 1] / 255;
+        const b = srcData[i + 2] / 255;
+
+        const waterScore = Math.max(0, Math.min(1, (b - Math.max(r, g * 0.9)) * 2.6));
+        const forestScore = Math.max(0, Math.min(1, (g - Math.max(r * 1.05, b * 1.05)) * 2.5));
+        const bankScore = Math.max(0, 1 - Math.abs(waterScore - 0.35) * 4.5) * (waterScore > 0.08 ? 1 : 0);
+
+        const nCoarse = smoothNoise(px * 0.02, py * 0.02) - 0.5;
+        const nFine = smoothNoise(px * 0.06 + 19.3, py * 0.06 + 47.7) - 0.5;
+        const grain = nCoarse * 0.028 + nFine * 0.01;
+
+        let cr = 0.79 + grain;
+        let cg = 0.63 + grain * 0.9;
+        let cb = 0.47 + grain * 0.8;
+
+        if (forestScore > 0.02) {
+          const f = forestScore;
+          cr = cr * (1 - f) + (0.36 + grain) * f;
+          cg = cg * (1 - f) + (0.52 + grain) * f;
+          cb = cb * (1 - f) + (0.34 + grain * 0.7) * f;
+        }
+
+        if (bankScore > 0.02) {
+          const k = bankScore * 0.55;
+          cr = cr * (1 - k) + 0.68 * k;
+          cg = cg * (1 - k) + 0.65 * k;
+          cb = cb * (1 - k) + 0.60 * k;
+        }
+        if (waterScore > 0.02) {
+          const w = waterScore;
+          cr = cr * (1 - w) + (0.48 + grain * 0.6) * w;
+          cg = cg * (1 - w) + (0.64 + grain * 0.7) * w;
+          cb = cb * (1 - w) + (0.76 + grain * 0.8) * w;
+        }
+
+        out[i] = Math.max(0, Math.min(255, Math.round(cr * 255)));
+        out[i + 1] = Math.max(0, Math.min(255, Math.round(cg * 255)));
+        out[i + 2] = Math.max(0, Math.min(255, Math.round(cb * 255)));
+        out[i + 3] = 255;
+
+        heightField[pIdx] = forestScore * 0.55 - waterScore * 0.35;
+        terrainField[pIdx] = waterScore > forestScore ? waterScore : -forestScore;
+      }
+    }
+
+    ctx.putImageData(outImg, 0, 0);
+    dynTex.update(true);
+    mapGrid = { size, heightField, terrainField };
+
+    groundMat.diffuseTexture = dynTex;
+    groundMat.diffuseTexture.uScale = 1;
+    groundMat.diffuseTexture.vScale = 1;
+    if (prevTex && prevTex !== dynTex && typeof prevTex.dispose === "function") {
+      prevTex.dispose();
+    }
+
+    restoreSavedZonesForMap(mapPath);
+    onTerrainChanged?.();
+  };
+
+  const buildTerrainFromMap = (mapPath) => {
+    activeMapPath = mapPath;
+    clearAutoProps();
+    const token = ++terrainLoadToken;
+
+    const candidateUrls = [
+      mapPath,
+      mapPath?.startsWith("/") ? mapPath.slice(1) : `/${mapPath}`,
+      mapPath?.startsWith("assets/") ? `web-src/${mapPath}` : null,
+      mapPath?.startsWith("assets/") ? `www/${mapPath}` : null
+    ].filter(Boolean);
+
+    const tryCandidate = (idx) => {
+      if (token !== terrainLoadToken) return;
+      if (idx >= candidateUrls.length) {
+        renderTerrainFromSource(drawProceduralMapCanvas(mapPath, 256), mapPath);
+        return;
+      }
+
+      const img = new Image();
+      img.onload = () => {
+        if (token !== terrainLoadToken) return;
+        renderTerrainFromSource(img, mapPath);
+      };
+      img.onerror = () => {
+        if (token !== terrainLoadToken) return;
+        tryCandidate(idx + 1);
+      };
+      img.src = candidateUrls[idx];
+    };
+
+    tryCandidate(0);
   };
 
   const spawnTerrainFeature = (point, tool) => {
     const radius = tool.id === "hills" ? 4.2 : tool.id === "water" ? 3.8 : 2.8;
-    let mesh;
-    if (tool.id === "hills") {
-      mesh = BABYLON.MeshBuilder.CreateSphere(`hill_${Date.now()}`, { diameterX: radius * 2, diameterY: 2.1, diameterZ: radius * 2 }, scene);
-      mesh.position = new BABYLON.Vector3(point.x, point.y + 0.35, point.z);
-    } else if (tool.id === "trees") {
-      mesh = createSpritePlane(`editorTree_${Date.now()}`, Math.floor(Math.random() * 8), 0, 1.5, 1.5);
-      mesh.position = new BABYLON.Vector3(point.x, point.y + 0.72, point.z);
-    } else {
-      mesh = BABYLON.MeshBuilder.CreateDisc(`${tool.id}_${Date.now()}`, { radius, tessellation: 24 }, scene);
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position = new BABYLON.Vector3(point.x, point.y + 0.05, point.z);
-    }
-    if (tool.id !== "trees") {
-      const mat = new BABYLON.StandardMaterial(`mat_${tool.id}`, scene);
-      mat.diffuseColor = tool.color;
-      mat.alpha = tool.id === "water" || tool.id === "fords" ? 0.72 : 0.92;
-      mesh.material = mat;
-    }
-    terrainZones.push({ kind: tool.id, x: point.x, z: point.z, radius, mesh });
+    const mesh = buildFeatureMesh(point, tool.id, radius, tool.color);
+    terrainZones.push({
+      kind: tool.id,
+      x: point.x,
+      z: point.z,
+      radius,
+      color: tool.color ?? null,
+      mesh
+    });
+    persistEditorZones();
   };
 
   const eraseTerrainFeatureAtMesh = (pickedMesh) => {
     const idx = terrainZones.findIndex((z) => z.mesh === pickedMesh);
     if (idx >= 0) {
-      terrainZones.splice(idx, 1)[0].mesh.dispose();
+      const removed = terrainZones.splice(idx, 1)[0];
+      removed.mesh?.material?.dispose?.();
+      removed.mesh?.dispose?.();
+      persistEditorZones();
       return true;
     }
     return false;
-  };
-
-  const clearTerrainZones = () => {
-    while (terrainZones.length) terrainZones.pop().mesh.dispose();
   };
 
   return {
