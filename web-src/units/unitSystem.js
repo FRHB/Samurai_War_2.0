@@ -1,5 +1,5 @@
 import * as BABYLON from "@babylonjs/core";
-import { createUnitBillboardAtlas } from "./unitBillboards.js";
+import { createUnitBillboardAtlas, getUnitBillboardSpec } from "./unitBillboards.js";
 
 const DEAD_CLEANUP_DELAY = 1.6;
 
@@ -125,15 +125,13 @@ export function createUnitSystem({
     const perSoldierArmor = unitDef.armor ?? 4;
     const perSoldierMorale = unitDef.morale ?? 70;
 
-    const isMounted = unitDef.id === "cavalry" || unitDef.id === "general";
+    const spec = getUnitBillboardSpec(unitDef.id, count);
     const aliveTex = billboardAtlas.getUnitBillboardTexture(unitDef.id, team, "alive");
 
     const cols = count === 1 ? 1 : Math.min(count, Math.max(4, Math.ceil(Math.sqrt(count * 1.6))));
     const rows = Math.ceil(count / cols);
-    const spacing = count > 100 ? 0.36 : count > 25 ? 0.42 : 0.52;
-    const spriteW = count > 100 ? 0.64 : isMounted ? 0.88 : 0.78;
-    const spriteH = count > 100 ? 0.7 : isMounted ? 0.88 : 0.84;
-    const baseY = spriteH * 0.5 + 0.03;
+    const spacing = Number(Math.max(spec.width * 0.68, count > 100 ? 0.36 : count > 25 ? 0.42 : 0.52).toFixed(3));
+    const baseY = spec.yOffset;
 
     const entities = [];
     for (let i = 0; i < count; i++) {
@@ -142,7 +140,7 @@ export function createUnitSystem({
       const lx = count === 1 ? 0 : (c - (cols - 1) / 2) * spacing;
       const lz = count === 1 ? 0 : (r - (rows - 1) / 2) * spacing;
 
-      const mesh = createSpritePlane(`unit_${unitDef.id}_s_${i}`, i % 8, team === 2 ? 1 : 2, spriteW, spriteH, aliveTex);
+      const mesh = createSpritePlane(`unit_${unitDef.id}_s_${i}`, i % 8, team === 2 ? 1 : 2, spec.width, spec.height, aliveTex);
       mesh.parent = root;
       mesh.isPickable = true;
       mesh.position.set(lx, baseY, lz);
@@ -174,7 +172,7 @@ export function createUnitSystem({
       cols,
       rows,
       spacing,
-      barY: rows * spacing * 0.5 + spriteH + 0.18
+      barY: rows * spacing * 0.5 + spec.height + 0.18
     };
   };
 
